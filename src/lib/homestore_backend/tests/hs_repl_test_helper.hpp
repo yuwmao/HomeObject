@@ -304,6 +304,9 @@ public:
                 sync_point_num);
         ipc_data_->sync(sync_point_num++, total_replicas_nums_);
     }
+    void decrease_total_replicas_nums() {
+        total_replicas_nums_--;
+    }
 
     void set_uint64_id(uint64_t uint64_id) { ipc_data_->set_uint64_id(uint64_id); }
     uint64_t get_uint64_id() { return ipc_data_->get_uint64_id(); }

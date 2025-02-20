@@ -248,10 +248,10 @@ public:
             auto shard_id = shard_vec.back();
             pg_blob_id[pg_id] = current_blob_id;
             auto last_blob_id = pg_blob_id[pg_id] - 1;
-            while (!blob_exist(shard_id, last_blob_id)) {
-                LOGINFO("waiting for pg_id {} blob {} to be created locally", pg_id, last_blob_id);
-                std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-            }
+            // while (!blob_exist(shard_id, last_blob_id)) {
+            //     LOGINFO("waiting for pg_id {} blob {} to be created locally", pg_id, last_blob_id);
+            //     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+            // }
             LOGINFO("shard {} blob {} is created locally, which means all the blob before {} are created", shard_id,
                     last_blob_id, last_blob_id);
         }

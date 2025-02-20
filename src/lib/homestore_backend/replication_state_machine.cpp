@@ -11,6 +11,21 @@
 namespace homeobject {
 void ReplicationStateMachine::on_commit(int64_t lsn, const sisl::blob& header, const sisl::blob& key,
                                         const homestore::MultiBlkId& pbas, cintrusive< homestore::repl_req_ctx >& ctx) {
+#ifdef _PRERELEASE
+    auto delay = iomgr_flip::instance()->get_test_flip< long >("simulate_on_commit_delay", static_cast<long>(lsn));
+    LOGD("simulate_on_commit_delay flip, triggered: {}, lsn: {}", delay.has_value(), lsn);
+    if (delay) {
+        LOGI("Simulating commit with delay, delay:{}, lsn:{}", delay.get(), lsn);
+        std::this_thread::sleep_for(std::chrono::milliseconds(delay.get()));
+    }
+    auto val = iomgr_flip::instance()->get_test_flip< long >("simulate_on_commit_kill", static_cast<long>(lsn));
+    LOGD("simulate_on_commit_kill flip, triggered: {}, lsn: {}", val.has_value(), lsn);
+    if (val) {
+        LOGI("Simulating commit kill, delay:{}, lsn:{}", val.get(), lsn);
+        std::raise(SIGKILL);
+    }
+
+#endif
     const ReplicationMessageHeader* msg_header = r_cast< const ReplicationMessageHeader* >(header.cbytes());
     LOGD("applying raft log commit with lsn:{}, msg type: {}", lsn, msg_header->msg_type);
     switch (msg_header->msg_type) {
@@ -42,6 +57,21 @@ bool ReplicationStateMachine::on_pre_commit(int64_t lsn, sisl::blob const& heade
     // For shard creation, since homestore repldev inside will write shard header to data service first before this
     // function is called. So there is nothing is needed to do and we can get the binding chunk_id with the newly shard
     // from the blkid in on_commit()
+#ifdef _PRERELEASE
+    auto delay = iomgr_flip::instance()->get_test_flip< long >("simulate_on_pre_commit_delay", static_cast<long>(lsn));
+    LOGD("simulate_on_pre_commit_delay flip, triggered: {}, lsn: {}", delay.has_value(), lsn);
+    if (delay) {
+        LOGI("Simulating commit with delay, delay:{}, lsn:{}", delay.get(), lsn);
+        std::this_thread::sleep_for(std::chrono::milliseconds(delay.get()));
+    }
+    auto val = iomgr_flip::instance()->get_test_flip< long >("simulate_on_commit_kill", static_cast<long>(lsn));
+    LOGD("simulate_on_pre_commit_kill flip, triggered: {}, lsn: {}", val.has_value(), lsn);
+    if (val) {
+        LOGI("Simulating commit kill, delay:{}, lsn:{}", val.get(), lsn);
+        std::raise(SIGKILL);
+    }
+
+#endif
     if (ctx->op_code() == homestore::journal_type_t::HS_CTRL_REPLACE) {
         LOGI("pre_commit replace member log entry, lsn:{}", lsn);
         return true;
@@ -249,6 +279,7 @@ std::shared_ptr< homestore::snapshot_context > ReplicationStateMachine::last_sna
 
 int ReplicationStateMachine::read_snapshot_obj(std::shared_ptr< homestore::snapshot_context > context,
                                                std::shared_ptr< homestore::snapshot_obj > snp_obj) {
+
     HSHomeObject::PGBlobIterator* pg_iter = nullptr;
     auto s = dynamic_pointer_cast< homestore::nuraft_snapshot_context >(context)->nuraft_snapshot();
 
