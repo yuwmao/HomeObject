@@ -180,6 +180,8 @@ public:
 
     bool is_chunk_available(const pg_id_t pg_id, const chunk_num_t v_chunk_id) const;
 
+    nlohmann::json dump_chunks_info(pg_id_t pg_id) const;
+
 private:
     void add_chunk_internal(const chunk_num_t, bool add_to_heap = true);
 

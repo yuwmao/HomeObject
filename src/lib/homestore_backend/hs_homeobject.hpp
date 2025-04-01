@@ -341,6 +341,7 @@ public:
 
         void update_info(const ShardInfo& info);
         auto p_chunk_id() const { return sb_->p_chunk_id; }
+        auto v_chunk_id() const { return sb_->v_chunk_id; }
     };
 
 #pragma pack(1)
@@ -761,6 +762,13 @@ public:
      */
     static uint64_t get_sequence_num_from_shard_id(uint64_t shard_id);
 
+    /**
+     * @brief Get the sequence number of the shard from the shard id.
+     *
+     * @param shard_id The ID of the shard.
+     * @return The PG ID of the shard.
+     */
+    pg_id_t get_pg_id_from_shard_id(uint64_t shard_id);
     /**
      * @brief recover PG and shard from the superblock.
      *

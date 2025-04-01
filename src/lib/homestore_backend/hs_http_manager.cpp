@@ -37,6 +37,14 @@ HttpManager::HttpManager(HSHomeObject& ho) : ho_(ho) {
         {Pistache::Http::Method::Post, "/api/v1/crashSystem",
          Pistache::Rest::Routes::bind(&HttpManager::crash_system, this)},
 #endif
+        {Pistache::Http::Method::Get, "/api/v1/pg", Pistache::Rest::Routes::bind(&HttpManager::get_pg, this)},
+        {Pistache::Http::Method::Get, "/api/v1/chunks",
+         Pistache::Rest::Routes::bind(&HttpManager::get_pg_chunks, this)},
+        {Pistache::Http::Method::Get, "/api/v1/shard", Pistache::Rest::Routes::bind(&HttpManager::get_shard, this)}
+        // {Pistache::Http::Method::Get, "/api/v1/chunk/dump",
+        //  Pistache::Rest::Routes::bind(&HttpManager::dump_chunk, this)},
+        // {Pistache::Http::Method::Get, "/api/v1/shard/dump",
+        //  Pistache::Rest::Routes::bind(&HttpManager::dump_shard, this)},
     };
 
     auto http_server = ioenvironment.get_http_server();
@@ -62,6 +70,122 @@ void HttpManager::get_obj_life(const Pistache::Rest::Request& request, Pistache:
 void HttpManager::get_malloc_stats(const Pistache::Rest::Request& request, Pistache::Http::ResponseWriter response) {
     response.send(Pistache::Http::Code::Ok, sisl::get_malloc_stats_detailed().dump(2));
 }
+
+void HttpManager::get_pg(const Pistache::Rest::Request& request, Pistache::Http::ResponseWriter response) {
+    auto pg_str = request.query().get("pg_id");
+    if (!pg_str) {
+        response.send(Pistache::Http::Code::Bad_Request, "pg_id is required");
+        return;
+    }
+    uint16_t pg_id = std::stoul(pg_str.value());
+    auto hs_pg = ho_.get_hs_pg(pg_id);
+    if (!hs_pg) {
+        response.send(Pistache::Http::Code::Not_Found, "pg not found");
+        return;
+    }
+    auto peers = hs_pg->repl_dev_->get_replication_status();
+    nlohmann::json json;
+    json["pg"]["id"] = pg_id;
+    json["pg"]["raft_group_id"] = boost::uuids::to_string(hs_pg->pg_info_.replica_set_uuid);
+    json["pg"]["leader"] =  boost::uuids::to_string(hs_pg->repl_dev_->get_leader_id());
+    for (const auto& member : hs_pg->pg_info_.members) {
+        nlohmann::json member_json;
+        member_json["id"] = boost::uuids::to_string(member.id);
+        member_json["name"] = member.name;
+        json["pg"]["members"].push_back(member_json);
+    }
+    response.send(Pistache::Http::Code::Ok, json.dump());
+}
+
+void HttpManager::get_pg_chunks(const Pistache::Rest::Request& request, Pistache::Http::ResponseWriter response) {
+    auto pg_str = request.query().get("pg_id");
+    if (!pg_str) {
+        response.send(Pistache::Http::Code::Bad_Request, "pg_id is required");
+        return;
+    }
+    uint16_t pg_id = std::stoul(pg_str.value());
+    auto hs_pg = ho_.get_hs_pg(pg_id);
+    if (!hs_pg) {
+        response.send(Pistache::Http::Code::Not_Found, "pg not found");
+        return;
+    }
+    auto json = ho_.chunk_selector()->dump_chunks_info(pg_id);
+    json["pg"]["blk_size"] = hs_pg->repl_dev_->get_blk_size();
+    response.send(Pistache::Http::Code::Ok, json.dump());
+}
+
+
+void HttpManager::get_shard(const Pistache::Rest::Request& request, Pistache::Http::ResponseWriter response) {
+    auto shard_str = request.query().get("shard_id");
+    if (!shard_str) {
+        response.send(Pistache::Http::Code::Bad_Request, "shard_id is required");
+        return;
+    }
+    uint64_t shard_id = std::stoul(shard_str.value());
+    nlohmann::json j;
+    j["shard_id"] = shard_id;
+    auto chk = ho_.get_shard_v_chunk_id(shard_id);
+    if (!chk) {
+        response.send(Pistache::Http::Code::Not_Found, "shard not found");
+        return;
+    }
+    auto pchk = ho_.get_shard_p_chunk_id(shard_id);
+    j["v_chunk_id"] = chk.value();
+    j["p_chunk_id"] = pchk.value();
+    response.send(Pistache::Http::Code::Ok, j.dump());
+}
+
+// void HttpManager::dump_chunk(const Pistache::Rest::Request& request, Pistache::Http::ResponseWriter response) {
+//     auto pg_str = request.query().get("pg_id");
+//     auto chunk_str = request.query().get("v_chunk_id");
+//     if (!pg_str) {
+//         response.send(Pistache::Http::Code::Bad_Request, "pg_id is required");
+//         return;
+//     }
+//     uint16_t pg_id = std::stoul(pg_str.value());
+//     auto hs_pg = ho_.get_hs_pg(pg_id);
+//     if (!hs_pg) {
+//         response.send(Pistache::Http::Code::Not_Found, "pg not found");
+//         return;
+//     }
+//     uint16_t v_chunk_id = std::stoul(chunk_str.value());
+//     nlohmann::json j;
+//     j["v_chunk_id"] = v_chunk_id;
+//     for (auto const shardptr : hs_pg->shards_) {
+//
+//         auto hs_shard = dynamic_cast< homeobject::HS_Shard* >(shardptr.get());
+//         if (hs_shard->v_chunk_id() == v_chunk_id) {
+//             nlohmann::json shard_json;
+//             shard_json["id"] = hs_shard->info.id;
+//             shard_json["name"] = ;
+//             j["data"].push_back(shard_json);
+//         }
+//     }
+// }
+//
+// void HttpManager::dump_shard(const Pistache::Rest::Request& request, Pistache::Http::ResponseWriter response) {
+//     auto shard_str = request.query().get("shard_id");
+//     if (!shard_str) {
+//         response.send(Pistache::Http::Code::Bad_Request, "shard_id is required");
+//         return;
+//     }
+//     uint64_t shard_id = std::stoul(shard_str.value());
+//     pg_id_t pg_id = ho_.get_pg_id_from_shard_id(shard_id);
+//     auto r = ho_.query_blobs_in_shard(pg_id, ho_.get_sequence_num_from_shard_id(shard_id), 0, UINT64_MAX);
+//     if (!r) { return false; }
+//     cur_blob_list_ = r.value();
+//     return true;
+//
+//     nlohmann::json j;
+//     j["shard_id"] = shard_id;
+//     auto chk = ho_.get_shard_v_chunk_id(shard_id);
+//     if (!chk) {
+//         response.send(Pistache::Http::Code::Not_Found, "shard not found");
+//         return;
+//     }
+//     j["v_chunk_id"] = chk.value();
+//     response.send(Pistache::Http::Code::Ok, j.dump());
+// }
 
 #ifdef _PRERELEASE
 void HttpManager::crash_system(const Pistache::Rest::Request& request, Pistache::Http::ResponseWriter response) {
