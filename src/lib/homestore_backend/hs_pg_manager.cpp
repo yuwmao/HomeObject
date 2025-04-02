@@ -576,6 +576,15 @@ uint32_t HSHomeObject::HS_PG::get_snp_progress() const {
     return snp_rcvr_info_sb_->progress.complete_bytes / snp_rcvr_info_sb_->progress.total_bytes;
 }
 
+std::vector< Shard > HSHomeObject::HS_PG::get_chunk_shards(chunk_num_t v_chunk_id) const {
+    std::vector< Shard > ret;
+    for (auto const& s : shards_) {
+        auto hs_shard = dynamic_cast< HS_Shard* >(s.get());
+        if (hs_shard->v_chunk_id() == v_chunk_id) { ret.push_back(*s); }
+    }
+    return ret;
+}
+
 // NOTE: caller should hold the _pg_lock
 const HSHomeObject::HS_PG* HSHomeObject::_get_hs_pg_unlocked(pg_id_t pg_id) const {
     auto iter = _pg_map.find(pg_id);

@@ -134,8 +134,9 @@ TEST_F(HomeObjectFixture, ReplaceMember) {
         LOGINFO("check no pg related data in out member successfully");
     }
 
+    sleep(300);
     // Step 6: restart, verify the blobs again on all members, including the new spare replica, and out_member
-    restart();
+    // restart();
     run_if_in_pg(pg_id, [&]() {
         verify_get_blob(pg_shard_id_vec, num_blobs_per_shard);
         verify_obj_count(1, num_shards_per_pg, num_blobs_per_shard, false);

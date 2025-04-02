@@ -331,6 +331,11 @@ public:
          * Returns the progress of the baseline resync.
          */
         uint32_t get_snp_progress() const;
+
+        /**
+         * Returns all shards
+         */
+        std::vector< Shard > get_chunk_shards(homestore::chunk_num_t v_chunk_id) const;
     };
 
     struct HS_Shard : public Shard {
@@ -825,6 +830,8 @@ public:
     sisl::io_blob_safe get_snapshot_sb_data(homestore::group_id_t group_id);
     void update_snapshot_sb(homestore::group_id_t group_id, std::shared_ptr< homestore::snapshot_context > ctx);
     void destroy_snapshot_sb(homestore::group_id_t group_id);
+
+    BlobManager::Result< std::vector< BlobInfo > > get_shard_blobs(shard_id_t shard_id);
 
 private:
     std::shared_ptr< BlobIndexTable > create_index_table();
