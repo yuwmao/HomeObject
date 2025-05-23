@@ -249,7 +249,7 @@ void HSHomeObject::on_create_pg_message_commit(int64_t lsn, sisl::blob const& he
     }
 }
 
-PGManager::NullAsyncResult HSHomeObject::_replace_member(pg_id_t pg_id, peer_id_t const& old_member_id,
+PGManager::NullAsyncResult HSHomeObject::_start_replace_member(pg_id_t pg_id, peer_id_t const& old_member_id,
                                                          PGMember const& new_member, uint32_t commit_quorum,
                                                          trace_id_t tid) {
     if (is_shutting_down()) {
@@ -283,7 +283,7 @@ PGManager::NullAsyncResult HSHomeObject::_replace_member(pg_id_t pg_id, peer_id_
     in_replica.name[new_member.name.size()] = '\0';
 
     return hs_repl_service()
-        .replace_member(group_id, out_replica, in_replica, commit_quorum, tid)
+        .start_replace_member(group_id, out_replica, in_replica, commit_quorum, tid)
         .via(executor_)
         .thenValue([this](auto&& v) mutable -> PGManager::NullAsyncResult {
             decr_pending_request_num();
@@ -292,8 +292,80 @@ PGManager::NullAsyncResult HSHomeObject::_replace_member(pg_id_t pg_id, peer_id_
         });
 }
 
-void HSHomeObject::on_pg_replace_member(homestore::group_id_t group_id, const replica_member_info& member_out,
-                                        const replica_member_info& member_in) {
+PGManager::NullAsyncResult HSHomeObject::_complete_replace_member(pg_id_t id, peer_id_t const& old_member,
+                                                   PGMember const& new_member, uint32_t commit_quorum,
+                                                   trace_id_t tid) {
+    if (is_shutting_down()) {
+        LOGI("service is being shut down, trace_id={}", tid);
+        return folly::makeUnexpected(PGError::SHUTTING_DOWN);
+    }
+    incr_pending_request_num();
+
+    auto hs_pg = get_hs_pg(id);
+    if (hs_pg == nullptr) {
+        decr_pending_request_num();
+        return folly::makeUnexpected(PGError::UNKNOWN_PG);
+    }
+
+    auto& repl_dev = pg_repl_dev(*hs_pg);
+    if (!repl_dev.is_leader() && commit_quorum == 0) {
+        // Only leader can replace a member
+        decr_pending_request_num();
+        return folly::makeUnexpected(PGError::NOT_LEADER);
+    }
+    auto group_id = repl_dev.group_id();
+
+    LOGI("PG complete replace member initiated, member_out={} member_in={} trace_id={}", boost::uuids::to_string(old_member),
+     boost::uuids::to_string(new_member.id), tid);
+
+    replica_member_info in_replica, out_replica;
+    out_replica.id = old_member;
+    in_replica.id = new_member.id;
+    in_replica.priority = new_member.priority;
+    std::strncpy(in_replica.name, new_member.name.data(), new_member.name.size());
+    in_replica.name[new_member.name.size()] = '\0';
+
+    return hs_repl_service()
+        .complete_replace_member(group_id, out_replica, in_replica, commit_quorum, tid)
+        .via(executor_)
+        .thenValue([this](auto&& v) mutable -> PGManager::NullAsyncResult {
+            decr_pending_request_num();
+            if (v.hasError()) { return folly::makeUnexpected(toPgError(v.error())); }
+            return folly::Unit();
+        });
+}
+
+void HSHomeObject::on_pg_start_replace_member(group_id_t group_id, const replica_member_info& member_out,
+                                              const replica_member_info& member_in, trace_id_t tid) {
+    auto lg = std::shared_lock(_pg_lock);
+    for (const auto& iter : _pg_map) {
+        auto& pg = iter.second;
+        if (pg_repl_dev(*pg).group_id() == group_id) {
+            // Remove the old member and add the new member
+            auto hs_pg = static_cast< HSHomeObject::HS_PG* >(pg.get());
+            pg->pg_info_.members.erase(PGMember(member_in.id));
+            pg->pg_info_.members.emplace(PGMember(member_in.id, member_in.name, member_in.priority, Role::IN_MEMBER));
+            pg->pg_info_.members.erase(PGMember(member_out.id));
+            pg->pg_info_.members.emplace(
+                PGMember(member_out.id, member_out.name, member_out.priority, Role::OUT_MEMBER));
+
+            if (!hs_pg->replace_member_ctx_sb_.is_empty()) {
+                hs_pg->add_replace_member_ctx(member_out.id, member_in.id, tid);
+            }
+
+            LOGI("PG start replace member done member_out={} member_in={}, member_nums={}, trace_id={}",
+                 boost::uuids::to_string(member_out.id), boost::uuids::to_string(member_in.id),
+                 pg->pg_info_.members.size(), tid);
+            return;
+        }
+    }
+
+    LOGE("PG replace member failed member_out={} member_in={}, trace_id={}", boost::uuids::to_string(member_out.id),
+         boost::uuids::to_string(member_in.id), tid);
+}
+
+void HSHomeObject::on_pg_complete_replace_member(group_id_t group_id, const replica_member_info& member_out,
+                                                 const replica_member_info& member_in, trace_id_t tid) {
     auto lg = std::shared_lock(_pg_lock);
     for (const auto& iter : _pg_map) {
         auto& pg = iter.second;
@@ -301,7 +373,8 @@ void HSHomeObject::on_pg_replace_member(homestore::group_id_t group_id, const re
             // Remove the old member and add the new member
             auto hs_pg = static_cast< HSHomeObject::HS_PG* >(pg.get());
             pg->pg_info_.members.erase(PGMember(member_out.id));
-            pg->pg_info_.members.emplace(PGMember(member_in.id, member_in.name, member_in.priority));
+            pg->pg_info_.members.erase(PGMember(member_in.id));
+            pg->pg_info_.members.emplace(PGMember(member_in.id, member_in.name, member_in.priority, Role::FOLLOWER));
 
             uint32_t i{0};
             pg_members* sb_members = hs_pg->pg_sb_->get_pg_members_mutable();
@@ -317,17 +390,18 @@ void HSHomeObject::on_pg_replace_member(homestore::group_id_t group_id, const re
 
             // Update the latest membership info to pg superblk.
             hs_pg->pg_sb_.write();
-            LOGI("PG replace member done member_out={} member_in={}", boost::uuids::to_string(member_out.id),
-                 boost::uuids::to_string(member_in.id));
+            if (!hs_pg->replace_member_ctx_sb_.is_empty()) { hs_pg->replace_member_ctx_sb_.destroy(); }
+            LOGI("PG complete replace member done member_out={} member_in={}, member_nums={}, trace_id={}",
+                 boost::uuids::to_string(member_out.id), boost::uuids::to_string(member_in.id),
+                 pg->pg_info_.members.size(), tid);
             return;
         }
     }
-
-    LOGE("PG replace member failed member_out={} member_in={}", boost::uuids::to_string(member_out.id),
-         boost::uuids::to_string(member_in.id));
+    LOGE("PG complete replace member done member_out={} member_in={}, trace_id={}",
+         boost::uuids::to_string(member_out.id), boost::uuids::to_string(member_in.id), tid);
 }
 
-std::optional< pg_id_t > HSHomeObject::get_pg_id_with_group_id(homestore::group_id_t group_id) const {
+std::optional< pg_id_t > HSHomeObject::get_pg_id_with_group_id(group_id_t group_id) const {
     auto lg = std::shared_lock(_pg_lock);
     auto iter = std::find_if(_pg_map.begin(), _pg_map.end(), [group_id](const auto& entry) {
         return pg_repl_dev(*entry.second).group_id() == group_id;
@@ -418,9 +492,11 @@ void HSHomeObject::destroy_pg_superblk(pg_id_t pg_id) {
         destroy_snapshot_sb(hs_pg->repl_dev_->group_id());
         hs_pg->snp_rcvr_info_sb_.destroy();
         hs_pg->snp_rcvr_shard_list_sb_.destroy();
+        hs_pg->replace_member_ctx_sb_.destroy();
 
         // erase pg in pg map
         auto iter = _pg_map.find(pg_id);
+        RELEASE_ASSERT(iter != _pg_map.end(), "Failed to find pg in pg map");
         _pg_map.erase(iter);
     }
 }
@@ -517,6 +593,40 @@ PGInfo HSHomeObject::HS_PG::pg_info_from_sb(homestore::superblk< pg_info_superbl
     return pginfo;
 }
 
+void HSHomeObject::on_replace_member_ctx_meta_blk_found(meta_blk* mblk, sisl::byte_view buf) {
+    superblk< replace_member_ctx_superblk > sb(_replace_member_ctx_meta_name);
+    sb.load(buf, mblk);
+
+    auto hs_pg = get_hs_pg(sb->pg_id);
+    RELEASE_ASSERT(hs_pg != nullptr, "PG not found, pg={}", sb->pg_id);
+    if (!hs_pg->replace_member_ctx_sb_.is_empty()) {
+        LOGW("replace member ctx already exists, overwrite it, prior [member_out={}, member_in={}], current "
+             "[member_out={}, member_in={}]",
+             boost::uuids::to_string(hs_pg->replace_member_ctx_sb_->out_member_id),
+             boost::uuids::to_string(hs_pg->replace_member_ctx_sb_->in_member_id),
+             boost::uuids::to_string(sb->out_member_id), boost::uuids::to_string(sb->in_member_id));
+        hs_pg->replace_member_ctx_sb_.destroy();
+    }
+
+    bool in_member_found = false;
+    bool out_member_found = false;
+    auto sb_members = hs_pg->pg_sb_->get_pg_members();
+    for (uint32_t i = 0; i < hs_pg->pg_sb_->num_members; ++i) {
+        in_member_found = (sb_members[i].id == sb->in_member_id);
+        out_member_found = (sb_members[i].id == sb->out_member_id);
+    }
+    if (in_member_found && !out_member_found) {
+        LOGI("replace member ctx found but complete, destroy it. pg={} out_member={} in_member={}", hs_pg->pg_info_.id,
+             boost::uuids::to_string(sb->out_member_id), boost::uuids::to_string(sb->in_member_id));
+        sb.destroy();
+    }
+    hs_pg->replace_member_ctx_sb_ = std::move(sb);
+}
+
+void HSHomeObject::on_replace_member_ctx_meta_blk_recover_completed(bool success) {
+    LOGINFO("Replace member context meta blk recovery completed");
+}
+
 HSHomeObject::HS_PG::HS_PG(PGInfo info, shared< homestore::ReplDev > rdev, shared< BlobIndexTable > index_table,
                            std::shared_ptr< const std::vector< chunk_num_t > > pg_chunk_ids) :
         PG{std::move(info)},
@@ -525,7 +635,8 @@ HSHomeObject::HS_PG::HS_PG(PGInfo info, shared< homestore::ReplDev > rdev, share
         index_table_{std::move(index_table)},
         metrics_{*this},
         snp_rcvr_info_sb_{_snp_rcvr_meta_name},
-        snp_rcvr_shard_list_sb_{_snp_rcvr_shard_list_meta_name} {
+        snp_rcvr_shard_list_sb_{_snp_rcvr_shard_list_meta_name},
+        replace_member_ctx_sb_{_replace_member_ctx_meta_name} {
     RELEASE_ASSERT(pg_chunk_ids != nullptr, "PG chunks null, pg={}", pg_info_.id);
     const uint32_t num_chunks = pg_chunk_ids->size();
     pg_sb_.create(sizeof(pg_info_superblk) - sizeof(char) + pg_info_.members.size() * sizeof(pg_members) +
@@ -575,6 +686,35 @@ uint32_t HSHomeObject::HS_PG::open_shards() const {
 
 uint32_t HSHomeObject::HS_PG::get_snp_progress() const {
     return snp_rcvr_info_sb_->progress.complete_bytes / snp_rcvr_info_sb_->progress.total_bytes;
+}
+
+void HSHomeObject::HS_PG::add_replace_member_ctx(peer_id_t member_out, peer_id_t member_in, trace_id_t tid) {
+    bool need_create = false;
+    if (!replace_member_ctx_sb_.is_empty()) {
+        if (replace_member_ctx_sb_->equal(member_out, member_in)) {
+            LOGD("replace member ctx already exists and equal to the current replace member intent, ignore it, "
+                 "trace_id={}",
+                 tid);
+        } else {
+            LOGW("replace member ctx already exists, overwrite it, prior [member_out={}, member_in={}], current "
+                 "[member_out={}, member_in={}], trace_id={}",
+                 boost::uuids::to_string(replace_member_ctx_sb_->out_member_id),
+                 boost::uuids::to_string(replace_member_ctx_sb_->in_member_id), boost::uuids::to_string(member_out),
+                 boost::uuids::to_string(member_in), tid);
+            replace_member_ctx_sb_.destroy();
+            need_create = true;
+        }
+    } else {
+        need_create = true;
+    }
+    if (need_create) {
+        auto sb = replace_member_ctx_sb_.create(sizeof(replace_member_ctx_superblk));
+        sb->group_id = pg_info_.replica_set_uuid;
+        sb->pg_id = pg_info_.id;
+        sb->out_member_id = member_out;
+        sb->in_member_id = member_in;
+        replace_member_ctx_sb_.write();
+    }
 }
 
 // NOTE: caller should hold the _pg_lock

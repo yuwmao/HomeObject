@@ -14,6 +14,8 @@ namespace homeobject {
 ENUM(PGError, uint16_t, UNKNOWN = 1, INVALID_ARG, TIMEOUT, UNKNOWN_PG, NOT_LEADER, UNKNOWN_PEER, UNSUPPORTED_OP,
      CRC_MISMATCH, NO_SPACE_LEFT, DRIVE_WRITE_ERROR, RETRY_REQUEST, SHUTTING_DOWN, ROLL_BACK);
 
+ENUM(Role, uint8_t, FOLLOWER = 0, LEADER, IN_MEMBER, OUT_MEMBER);
+
 struct PGMember {
     // Max length is based on homestore::replica_member_info::max_name_len - 1. Last byte is null terminated.
     static constexpr uint64_t max_name_len = 127;
@@ -24,9 +26,13 @@ struct PGMember {
     PGMember(peer_id_t _id, std::string const& _name, int32_t _priority) : id(_id), name(_name), priority(_priority) {
         RELEASE_ASSERT(name.size() <= max_name_len, "Name exceeds max length");
     }
+    PGMember(peer_id_t _id, std::string const& _name, int32_t _priority, Role _role) : id(_id), name(_name), priority(_priority), role(_role) {
+        RELEASE_ASSERT(name.size() <= max_name_len, "Name exceeds max length");
+    }
     peer_id_t id;
     std::string name;
     int32_t priority{0}; // <0 (Arbiter), ==0 (Follower), >0 (F|Leader)
+    Role role{Role::FOLLOWER};
 
     auto operator<=>(PGMember const& rhs) const {
         return boost::uuids::hash_value(id) <=> boost::uuids::hash_value(rhs.id);
@@ -101,7 +107,9 @@ struct PGStats {
 class PGManager : public Manager< PGError > {
 public:
     virtual NullAsyncResult create_pg(PGInfo&& pg_info, trace_id_t tid = 0) = 0;
-    virtual NullAsyncResult replace_member(pg_id_t id, peer_id_t const& old_member, PGMember const& new_member,
+    virtual NullAsyncResult start_replace_member(pg_id_t id, peer_id_t const& old_member, PGMember const& new_member,
+                                           u_int32_t commit_quorum = 0, trace_id_t tid = 0) = 0;
+    virtual NullAsyncResult complete_replace_member(pg_id_t id, peer_id_t const& old_member, PGMember const& new_member,
                                            u_int32_t commit_quorum = 0, trace_id_t tid = 0) = 0;
 
     /**

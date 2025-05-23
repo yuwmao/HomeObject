@@ -98,9 +98,12 @@ class HomeObjectImpl : public HomeObject,
 
     virtual PGManager::NullAsyncResult _create_pg(PGInfo&& pg_info, std::set< peer_id_t > const& peers,
                                                   trace_id_t tid) = 0;
-    virtual PGManager::NullAsyncResult _replace_member(pg_id_t id, peer_id_t const& old_member,
+    virtual PGManager::NullAsyncResult _start_replace_member(pg_id_t id, peer_id_t const& old_member,
                                                        PGMember const& new_member, uint32_t commit_quorum,
                                                        trace_id_t trace_id) = 0;
+    virtual PGManager::NullAsyncResult _complete_replace_member(pg_id_t id, peer_id_t const& old_member,
+                                                   PGMember const& new_member, uint32_t commit_quorum,
+                                                   trace_id_t trace_id) = 0;
     virtual bool _get_stats(pg_id_t id, PGStats& stats) const = 0;
     virtual void _get_pg_ids(std::vector< pg_id_t >& pg_ids) const = 0;
 
@@ -146,8 +149,10 @@ public:
 
     /// PgManager
     PGManager::NullAsyncResult create_pg(PGInfo&& pg_info, trace_id_t tid) final;
-    PGManager::NullAsyncResult replace_member(pg_id_t id, peer_id_t const& old_member, PGMember const& new_member,
+    PGManager::NullAsyncResult start_replace_member(pg_id_t id, peer_id_t const& old_member, PGMember const& new_member,
                                               u_int32_t commit_quorum, trace_id_t trace_id) final;
+    PGManager::NullAsyncResult complete_replace_member(pg_id_t id, peer_id_t const& old_member, PGMember const& new_member,
+                                          u_int32_t commit_quorum, trace_id_t trace_id) final;
     // see api comments in base class;
     bool get_stats(pg_id_t id, PGStats& stats) const final;
     void get_pg_ids(std::vector< pg_id_t >& pg_ids) const final;

@@ -55,6 +55,13 @@ int HSHomeObject::SnapshotReceiveHandler::process_pg_snapshot_data(ResyncPGMetaD
     hs_pg->durable_entities_update(
         [&pg_meta](auto& de) { de.blob_sequence_num.store(pg_meta.blob_seq_num(), std::memory_order_relaxed); });
 
+    if (pg_meta.replace_member_ctx() != nullptr) {
+        peer_id_t out_member, in_member;
+        std::copy_n(pg_meta.replace_member_ctx()->out_member()->data(), 16, out_member.begin());
+        std::copy_n(pg_meta.replace_member_ctx()->in_member()->data(), 16, in_member.begin());
+        LOGD("replace_member_ctx is set, out_member={}, in_member={}", out_member, in_member);
+        hs_pg->add_replace_member_ctx(out_member, in_member);
+    }
     // update metrics
     std::unique_lock< std::shared_mutex > lock(ctx_->progress_lock);
     ctx_->progress.start_time =

@@ -8,6 +8,11 @@ table Member {
     priority: int;
 }
 
+table ReplaceMemberContext {
+    out_member: [ubyte];
+    in_member: [ubyte];
+}
+
 table ResyncPGMetaData {
     pg_id : uint16;                        // only low 16 bit is used for pg_id;
     replica_set_uuid : [ubyte];    // uuid of replica set
@@ -19,6 +24,7 @@ table ResyncPGMetaData {
     shard_ids : [uint64];              // shard ids to transmit;
     total_blobs_to_transfer : uint64;      // total used bytes of the pg
     total_bytes_to_transfer : uint64;      // total capacity of the pg
+    replace_member_ctx: ReplaceMemberContext; // replace member context
 }
 
 // ResyncPGMetaData schema is the first message(ObjID=0) in the resync data stream

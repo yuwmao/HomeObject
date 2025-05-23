@@ -20,7 +20,7 @@ PGManager::NullAsyncResult HomeObjectImpl::create_pg(PGInfo&& pg_info, trace_id_
     return _create_pg(std::move(pg_info), peers, tid);
 }
 
-PGManager::NullAsyncResult HomeObjectImpl::replace_member(pg_id_t id, peer_id_t const& old_member,
+PGManager::NullAsyncResult HomeObjectImpl::start_replace_member(pg_id_t id, peer_id_t const& old_member,
                                                           PGMember const& new_member, uint32_t commit_quorum,
                                                           trace_id_t tid) {
     LOGI("[pg={}] replace member [{}] with [{}] quorum [{}] trace_id [{}]",
@@ -30,7 +30,20 @@ PGManager::NullAsyncResult HomeObjectImpl::replace_member(pg_id_t id, peer_id_t 
         return folly::makeUnexpected(PGError::INVALID_ARG);
     }
 
-    return _replace_member(id, old_member, new_member, commit_quorum, tid);
+    return _start_replace_member(id, old_member, new_member, commit_quorum, tid);
+}
+
+PGManager::NullAsyncResult HomeObjectImpl::complete_replace_member(pg_id_t id, peer_id_t const& old_member,
+                                                          PGMember const& new_member, uint32_t commit_quorum,
+                                                          trace_id_t tid) {
+    LOGI("[pg={}] remove member [{}] with [{}] quorum [{}] trace_id [{}]",
+         id, to_string(old_member), to_string(new_member.id), commit_quorum, tid);
+    if (old_member == new_member.id) {
+        LOGW("rejecting identical replacement SvcId [{}]! trace_id [{}]", to_string(old_member), tid);
+        return folly::makeUnexpected(PGError::INVALID_ARG);
+    }
+
+    return _complete_replace_member(id, old_member, new_member, commit_quorum, tid);
 }
 
 bool HomeObjectImpl::get_stats(pg_id_t id, PGStats& stats) const { return _get_stats(id, stats); }

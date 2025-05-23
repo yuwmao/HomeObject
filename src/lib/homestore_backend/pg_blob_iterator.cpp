@@ -152,10 +152,19 @@ bool HSHomeObject::PGBlobIterator::create_pg_snapshot_data(sisl::io_blob_safe& m
     for (auto& shard : shard_list_) {
         shard_ids.push_back(shard.info.id);
     }
+    auto hs_pg = dynamic_cast< HS_PG* >(pg);
+    flatbuffers::Offset< homeobject::ReplaceMemberContext > replace_member_ctx;
+    if (!hs_pg->replace_member_ctx_sb_.is_empty()) {
+        auto out_member_id = std::vector< std::uint8_t >(hs_pg->replace_member_ctx_sb_->out_member_id.begin(),
+                                                         hs_pg->replace_member_ctx_sb_->out_member_id.end());
+        auto in_member_id = std::vector< std::uint8_t >(hs_pg->replace_member_ctx_sb_->in_member_id.begin(),
+                                                        hs_pg->replace_member_ctx_sb_->in_member_id.end());
+        replace_member_ctx = CreateReplaceMemberContextDirect(builder_, &out_member_id, &in_member_id);
+    }
 
     auto pg_entry = CreateResyncPGMetaDataDirect(builder_, pg_info.id, &uuid, pg_info.size, pg_info.chunk_size,
                                                  pg->durable_entities().blob_sequence_num, pg->shard_sequence_num_,
-                                                 &members, &shard_ids, total_blobs, total_bytes);
+                                                 &members, &shard_ids, total_blobs, total_bytes, replace_member_ctx);
     builder_.FinishSizePrefixed(pg_entry);
 
     pack_resync_message(meta_blob, SyncMessageType::PG_META);

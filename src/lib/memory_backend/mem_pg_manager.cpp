@@ -9,9 +9,24 @@ PGManager::NullAsyncResult MemoryHomeObject::_create_pg(PGInfo&& pg_info, std::s
     return folly::makeSemiFuture< PGManager::NullResult >(folly::Unit());
 }
 
-PGManager::NullAsyncResult MemoryHomeObject::_replace_member(pg_id_t id, peer_id_t const& old_member,
+PGManager::NullAsyncResult MemoryHomeObject::_start_replace_member(pg_id_t id, peer_id_t const& old_member,
                                                              PGMember const& new_member, uint32_t commit_quorum,
                                                              trace_id_t tid) {
+    (void)old_member;
+    (void)new_member;
+    (void)commit_quorum;
+    (void)tid;
+    auto lg = std::shared_lock(_pg_lock);
+    auto it = _pg_map.find(id);
+    if (_pg_map.end() == it) {
+        return folly::makeSemiFuture< PGManager::NullResult >(folly::makeUnexpected(PGError::UNKNOWN_PG));
+    }
+    return folly::makeSemiFuture< PGManager::NullResult >(folly::makeUnexpected(PGError::UNSUPPORTED_OP));
+}
+
+PGManager::NullAsyncResult MemoryHomeObject::_complete_replace_member(pg_id_t id, peer_id_t const& old_member,
+                                                            PGMember const& new_member, uint32_t commit_quorum,
+                                                            trace_id_t tid) {
     (void)old_member;
     (void)new_member;
     (void)commit_quorum;

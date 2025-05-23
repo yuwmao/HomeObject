@@ -471,6 +471,39 @@ public:
         EXPECT_EQ(lhs.current_leader, rhs.current_leader);
     }
 
+    bool verify_start_replace_member_result(pg_id_t pg_id, peer_id_t out_member, peer_id_t in_member) {
+        auto hs_pg = _obj_inst->get_hs_pg(pg_id);
+        RELEASE_ASSERT(hs_pg, "PG not found");
+        auto in = hs_pg->pg_info_.members.find(PGMember(in_member, "in_member"));
+        auto out = hs_pg->pg_info_.members.find(PGMember(out_member, "out_member"));
+
+        if (in == hs_pg->pg_info_.members.end() || in->role != Role::IN_MEMBER) {
+            LOGERROR("Invalid in member role, {}", in->role);
+            return false;
+        }
+        if (out == hs_pg->pg_info_.members.end() || out->role != Role::OUT_MEMBER) {
+            LOGERROR("Invalid out member role, {}", in->role);
+            return false;
+        }
+        return true;
+    }
+    bool verify_complete_replace_member_result(pg_id_t pg_id, peer_id_t out_member, peer_id_t in_member) {
+        auto hs_pg = _obj_inst->get_hs_pg(pg_id);
+        RELEASE_ASSERT(hs_pg, "PG not found");
+        auto in = hs_pg->pg_info_.members.find(PGMember(in_member, "in_member"));
+        auto out = hs_pg->pg_info_.members.find(PGMember(out_member, "out_member"));
+
+        if (in == hs_pg->pg_info_.members.end() || in->role != Role::FOLLOWER) {
+            LOGERROR("Invalid in member role, {}", in->role);
+            return false;
+        }
+        if (out != hs_pg->pg_info_.members.end()) {
+            LOGERROR("Out member still exists in PG");
+            return false;
+        }
+        return true;
+    }
+
     void run_on_pg_leader(pg_id_t pg_id, auto&& lambda) {
         PGStats pg_stats;
         auto res = _obj_inst->pg_manager()->get_stats(pg_id, pg_stats);

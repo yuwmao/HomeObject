@@ -321,6 +321,15 @@ void HSHomeObject::on_replica_restart() {
             },
             [this](bool success) { on_snp_rcvr_shard_list_meta_blk_recover_completed(success); }, true);
         HomeStore::instance()->meta_service().read_sub_sb(_snp_rcvr_shard_list_meta_name);
+
+        // recover replace member context
+        HomeStore::instance()->meta_service().register_handler(
+            _replace_member_ctx_meta_name,
+            [this](meta_blk* mblk, sisl::byte_view buf, size_t size) {
+                on_replace_member_ctx_meta_blk_found(mblk, buf);
+            },
+            [this](bool success) { on_replace_member_ctx_meta_blk_recover_completed(success); }, true);
+        HomeStore::instance()->meta_service().read_sub_sb(_replace_member_ctx_meta_name);
     });
 }
 
