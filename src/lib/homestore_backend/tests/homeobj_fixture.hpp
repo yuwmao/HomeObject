@@ -60,7 +60,7 @@ public:
     void TearDown() override {
         g_helper->sync();
         LOGINFO("Tearing down homeobject replica={}", g_helper->my_replica_id());
-        LOGINFO("Metrics={}", sisl::MetricsFarm::getInstance().get_result_in_json().dump(2));
+        // LOGINFO("Metrics={}", sisl::MetricsFarm::getInstance().get_result_in_json().dump(2));
         g_helper->app->stop_http_server();
         _obj_inst.reset();
         g_helper->delete_homeobject();
@@ -83,7 +83,6 @@ public:
         LOGINFO("Metrics={}", sisl::MetricsFarm::getInstance().get_result_in_json().dump(2));
         _obj_inst.reset();
         g_helper->homeobj_.reset();
-        sleep(120);
     }
 
     void start() {
@@ -489,6 +488,7 @@ public:
                 std::this_thread::sleep_for(std::chrono::milliseconds(500));
                 continue;
             }
+            LOGINFO("get leader, leader={}", uuids::to_string(pg_stats.leader_id));
             return pg_stats.leader_id;
         }
     }
@@ -512,7 +512,7 @@ public:
         auto res = _obj_inst->pg_manager()->get_stats(pg_id, pg_stats);
         if (!res) return false;
         for (const auto& member : pg_stats.members) {
-            if (std::get< 0 >(member) == g_helper->my_replica_id()) return true;
+            if (member.id == g_helper->my_replica_id()) return true;
         }
         return false;
     }
@@ -610,12 +610,47 @@ private:
         m_fc.remove_flip(flip_name);
         LOGINFO("Flip {} removed", flip_name);
     }
+
+    bool verify_start_replace_member_result(pg_id_t pg_id, peer_id_t out_member, peer_id_t in_member) {
+        auto hs_pg = _obj_inst->get_hs_pg(pg_id);
+        RELEASE_ASSERT(hs_pg, "PG not found");
+        auto in = hs_pg->pg_info_.members.find(PGMember(in_member, "in_member"));
+        auto out = hs_pg->pg_info_.members.find(PGMember(out_member, "out_member"));
+
+        if (in == hs_pg->pg_info_.members.end() || in->role != Role::IN_MEMBER) {
+            LOGERROR("Invalid in member role, {}", in->role);
+            return false;
+        }
+        if (out == hs_pg->pg_info_.members.end() || out->role != Role::OUT_MEMBER) {
+            LOGERROR("Invalid out member role, {}", in->role);
+            return false;
+        }
+        return true;
+    }
+    bool verify_complete_replace_member_result(pg_id_t pg_id, peer_id_t out_member, peer_id_t in_member) {
+        auto hs_pg = _obj_inst->get_hs_pg(pg_id);
+        RELEASE_ASSERT(hs_pg, "PG not found");
+        auto in = hs_pg->pg_info_.members.find(PGMember(in_member, "in_member"));
+        auto out = hs_pg->pg_info_.members.find(PGMember(out_member, "out_member"));
+
+        if (in == hs_pg->pg_info_.members.end() || in->role != Role::NORMAL) {
+            LOGERROR("Invalid in member role, {}", in->role);
+            return false;
+        }
+        if (out != hs_pg->pg_info_.members.end()) {
+            LOGERROR("Out member still exists in PG");
+            return false;
+        }
+        return true;
+    }
 #endif
 
     void RestartFollowerDuringBaselineResyncUsingSigKill(uint64_t flip_delay, uint64_t restart_interval,
                                                          string restart_phase);
     void RestartLeaderDuringBaselineResyncUsingSigKill(uint64_t flip_delay, uint64_t restart_interval,
                                                        string restart_phase);
+    void KillMemberDuringBaselineResyncUsingSigKill(uint64_t flip_delay, uint64_t restart_interval,
+                                                    string restart_phase, bool is_leader);
 
 private:
     std::random_device rnd{};

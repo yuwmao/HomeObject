@@ -31,13 +31,14 @@ TEST_F(TestFixture, CreateDuplicatePg) {
 }
 
 TEST_F(TestFixture, Migrate) {
+    auto in_member = PGMember{boost::uuids::random_generator()()};
     EXPECT_EQ(homeobj_->pg_manager()
-                  ->replace_member(UINT16_MAX, boost::uuids::random_generator()(),
-                                   PGMember{boost::uuids::random_generator()()}, 0)
+                  ->start_replace_member(UINT16_MAX, boost::uuids::random_generator()(), in_member, 0)
                   .get()
                   .error(),
               PGError::UNKNOWN_PG);
-    EXPECT_EQ(homeobj_->pg_manager()->replace_member(_pg_id, _peer1, PGMember{_peer1}).get().error(),
+    in_member.id = _peer1;
+    EXPECT_EQ(homeobj_->pg_manager()->start_replace_member(_pg_id, _peer1, in_member).get().error(),
               PGError::INVALID_ARG);
     // TODO enable after HO test framework is enabled
 #if 0

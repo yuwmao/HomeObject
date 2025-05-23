@@ -60,8 +60,12 @@ private:
     BlobManager::NullAsyncResult _del_blob(ShardInfo const&, blob_id_t, trace_id_t tid) override;
 
     PGManager::NullAsyncResult _create_pg(PGInfo&& pg_info, std::set< peer_id_t > const& peers, trace_id_t tid) override;
-    PGManager::NullAsyncResult _replace_member(pg_id_t id, peer_id_t const& old_member, PGMember const& new_member,
-                                               uint32_t commit_quorum, trace_id_t tid) override;
+    PGManager::NullAsyncResult _start_replace_member(pg_id_t id, peer_id_t const& old_member,
+                                                     PGMember& new_member, uint32_t commit_quorum,
+                                                     trace_id_t tid) override;
+    PGManager::NullAsyncResult _complete_replace_member(pg_id_t id, peer_id_t const& old_member,
+                                                       PGMember& new_member, uint32_t commit_quorum,
+                                                       trace_id_t tid) override;
 
     bool _get_stats(pg_id_t id, PGStats& stats) const override;
     void _get_pg_ids(std::vector< pg_id_t >& pg_ids) const override;
@@ -84,6 +88,7 @@ public:
         // PGMember::max_name_len is the actual maximum string length, adding 1 for the null terminator.
         char name[PGMember::max_name_len + 1];
         int32_t priority{0};
+        uint8_t role{0};
     };
 
     struct pg_info_superblk {
@@ -693,14 +698,24 @@ public:
                                      cintrusive< homestore::repl_req_ctx >& hs_ctx);
 
     /**
-     * @brief Function invoked when a member is replaced by a new member
+     * @brief Function invoked when start a member replacement
      *
      * @param group_id The group id of replication device.
      * @param member_out Member which is removed from group
      * @param member_in Member which is added to group
      * */
-    void on_pg_replace_member(homestore::group_id_t group_id, const homestore::replica_member_info& member_out,
-                              const homestore::replica_member_info& member_in);
+    void on_pg_start_replace_member(homestore::group_id_t group_id, const homestore::replica_member_info& member_out,
+                                    const homestore::replica_member_info& member_in);
+
+    /**
+     * @brief Function invoked when complete a member replacement
+     *
+     * @param group_id The group id of replication device.
+     * @param member_out Member which is removed from group
+     * @param member_in Member which is added to group
+     * */
+    void on_pg_complete_replace_member(homestore::group_id_t group_id, const homestore::replica_member_info& member_out,
+                                       const homestore::replica_member_info& member_in);
 
     /**
      * @brief Cleans up and recycles resources for the PG identified by the given pg_id on the current node.

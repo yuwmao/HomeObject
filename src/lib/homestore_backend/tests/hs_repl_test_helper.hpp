@@ -352,6 +352,11 @@ public:
 
     void sync() { ipc_data_->sync(sync_point_num++, total_replicas_nums_); }
 
+    void reset_total_sync_replicas(uint8_t total_replicas) {
+        total_replicas_nums_ = total_replicas;
+        ipc_data_->homeobject_replica_count_ = 0;
+    }
+
     // Bump sync point to avoid interference across different test cases
     void bump_sync_point_and_sync() {
         static constexpr uint64_t sync_point_gap_per_test = 1000;

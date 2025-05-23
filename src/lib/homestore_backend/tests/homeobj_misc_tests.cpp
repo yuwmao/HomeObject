@@ -223,8 +223,8 @@ TEST_F(HomeObjectFixture, SnapshotReceiveHandler) {
     std::vector< flatbuffers::Offset< Member > > members;
     std::vector uuid(stats.replica_set_uuid.begin(), stats.replica_set_uuid.end());
     for (auto& member : stats.members) {
-        auto id = std::vector< std::uint8_t >(std::get< 0 >(member).begin(), std::get< 0 >(member).end());
-        members.push_back(CreateMemberDirect(builder, &id, std::get< 1 >(member).c_str(), 100));
+        auto id = std::vector< std::uint8_t >(member.id.begin(), member.id.end());
+        members.push_back(CreateMemberDirect(builder, &id, member.name.c_str(), 100));
     }
     std::vector< uint64_t > shard_ids;
     for (uint64_t i = 1; i <= num_shards_per_pg; i++) {

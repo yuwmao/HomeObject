@@ -13,6 +13,7 @@ namespace homeobject {
 
 ENUM(PGError, uint16_t, UNKNOWN = 1, INVALID_ARG, TIMEOUT, UNKNOWN_PG, NOT_LEADER, UNKNOWN_PEER, UNSUPPORTED_OP,
      CRC_MISMATCH, NO_SPACE_LEFT, DRIVE_WRITE_ERROR, RETRY_REQUEST, SHUTTING_DOWN, ROLL_BACK);
+ENUM(Role, uint8_t, NORMAL = 0, LEADER, IN_MEMBER, OUT_MEMBER);
 
 struct PGMember {
     // Max length is based on homestore::replica_member_info::max_name_len - 1. Last byte is null terminated.
@@ -24,9 +25,13 @@ struct PGMember {
     PGMember(peer_id_t _id, std::string const& _name, int32_t _priority) : id(_id), name(_name), priority(_priority) {
         RELEASE_ASSERT(name.size() <= max_name_len, "Name exceeds max length");
     }
+    PGMember(peer_id_t _id, std::string const& _name, int32_t _priority, Role role) : id(_id), name(_name), priority(_priority), role(role) {
+        RELEASE_ASSERT(name.size() <= max_name_len, "Name exceeds max length");
+    }
     peer_id_t id;
     std::string name;
     int32_t priority{0}; // <0 (Arbiter), ==0 (Follower), >0 (F|Leader)
+    Role role{Role::NORMAL};
 
     auto operator<=>(PGMember const& rhs) const {
         return boost::uuids::hash_value(id) <=> boost::uuids::hash_value(rhs.id);
@@ -48,6 +53,15 @@ struct PGInfo {
     auto operator==(PGInfo const& rhs) const { return id == rhs.id; }
 };
 
+struct peer_info {
+    peer_id_t id;
+    std::string name;
+    uint64_t last_commit_lsn{0};
+    uint64_t last_succ_resp_us{0};
+    Role role{Role::NORMAL};
+    explicit peer_info(peer_id_t _id, std::string const& _name) : id(_id), name(_name) {}
+};
+
 struct PGStats {
     pg_id_t id;
     peer_id_t replica_set_uuid;
@@ -61,18 +75,16 @@ struct PGStats {
     uint64_t num_active_objects;    // total number of active objects on this PG;
     uint64_t num_tombstone_objects; // total number of tombstone objects on this PG;
     uint64_t pg_state;              // PG state;
-    std::vector<
-        std::tuple< peer_id_t, std::string, uint64_t /* last_commit_lsn */, uint64_t /* last_succ_resp_us_ */ > >
-        members;
+    std::vector< peer_info > members;
 
     std::string to_string() {
         std::string members_str;
         uint32_t i = 0ul;
         for (auto const& m : members) {
             if (i++ > 0) { members_str += ", "; };
-            members_str += fmt::format("member-{}: id={}, name={}, last_commit_lsn={}， last_succ_resp_us_={}", i,
-                                       boost::uuids::to_string(std::get< 0 >(m)), std::get< 1 >(m), std::get< 2 >(m),
-                                       std::get< 3 >(m));
+            members_str +=
+                fmt::format("member-{}: id={}, name={}, last_commit_lsn={}, last_succ_resp_us_={}, role={}", i,
+                            boost::uuids::to_string(m.id), m.name, m.last_commit_lsn, m.last_succ_resp_us, m.role);
         }
 
         return fmt::format(
@@ -86,8 +98,10 @@ struct PGStats {
 class PGManager : public Manager< PGError > {
 public:
     virtual NullAsyncResult create_pg(PGInfo&& pg_info, trace_id_t tid = 0) = 0;
-    virtual NullAsyncResult replace_member(pg_id_t id, peer_id_t const& old_member, PGMember const& new_member,
-                                           u_int32_t commit_quorum = 0, trace_id_t tid = 0) = 0;
+    virtual NullAsyncResult start_replace_member(pg_id_t id, peer_id_t const& old_member, PGMember& new_member,
+                                                 u_int32_t commit_quorum = 0, trace_id_t tid = 0) = 0;
+    virtual NullAsyncResult complete_replace_member(pg_id_t id, peer_id_t const& old_member, PGMember& new_member,
+                                                    u_int32_t commit_quorum = 0, trace_id_t tid = 0) = 0;
 
     /**
      * Retrieves the statistics for a specific PG (Placement Group) identified by its ID.

@@ -78,8 +78,9 @@ bool ReplicationStateMachine::on_pre_commit(int64_t lsn, sisl::blob const& heade
     // For shard creation, since homestore repldev inside will write shard header to data service first before this
     // function is called. So there is nothing is needed to do and we can get the binding chunk_id with the newly shard
     // from the blkid in on_commit()
-    if (ctx->op_code() == homestore::journal_type_t::HS_CTRL_REPLACE) {
-        LOGI("pre_commit replace member log entry, lsn={}", lsn);
+    if (ctx->op_code() == homestore::journal_type_t::HS_CTRL_REPLACE_START ||
+        ctx->op_code() == homestore::journal_type_t::HS_CTRL_REPLACE_COMPLETE) {
+        LOGI("pre_commit replace member log entry, lsn={}, code={}", lsn, ctx->op_code());
         return true;
     }
 
@@ -263,9 +264,15 @@ ReplicationStateMachine::get_blk_alloc_hints(sisl::blob const& header, uint32_t 
     return homestore::blk_alloc_hints();
 }
 
-void ReplicationStateMachine::on_replace_member(const homestore::replica_member_info& member_out,
-                                                const homestore::replica_member_info& member_in) {
-    home_object_->on_pg_replace_member(repl_dev()->group_id(), member_out, member_in);
+void ReplicationStateMachine::on_start_replace_member(const homestore::replica_member_info& member_out,
+                                                      const homestore::replica_member_info& member_in) {
+
+    home_object_->on_pg_start_replace_member(repl_dev()->group_id(), member_out, member_in);
+}
+
+void ReplicationStateMachine::on_complete_replace_member(const homestore::replica_member_info& member_out,
+                                                         const homestore::replica_member_info& member_in) {
+    //home_object_->on_pg_complete_replace_member(repl_dev()->group_id(), member_out, member_in);
 }
 
 void ReplicationStateMachine::on_destroy(const homestore::group_id_t& group_id) {
