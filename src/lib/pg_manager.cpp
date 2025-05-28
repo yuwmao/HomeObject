@@ -20,7 +20,7 @@ PGManager::NullAsyncResult HomeObjectImpl::create_pg(PGInfo&& pg_info, trace_id_
     return _create_pg(std::move(pg_info), peers, tid);
 }
 
-PGManager::NullAsyncResult HomeObjectImpl::start_replace_member(pg_id_t id, peer_id_t const& old_member,
+PGManager::NullAsyncResult HomeObjectImpl::replace_member(pg_id_t id, peer_id_t const& old_member,
                                                           PGMember const& new_member, uint32_t commit_quorum,
                                                           trace_id_t tid) {
     LOGI("[pg={}] replace member [{}] with [{}] quorum [{}] trace_id [{}]",
@@ -30,7 +30,7 @@ PGManager::NullAsyncResult HomeObjectImpl::start_replace_member(pg_id_t id, peer
         return folly::makeUnexpected(PGError::INVALID_ARG);
     }
 
-    return _start_replace_member(id, old_member, new_member, commit_quorum, tid);
+    return _replace_member(id, old_member, new_member, commit_quorum, tid);
 }
 
 PGManager::NullAsyncResult HomeObjectImpl::complete_replace_member(pg_id_t id, peer_id_t const& old_member,

@@ -107,7 +107,7 @@ struct PGStats {
 class PGManager : public Manager< PGError > {
 public:
     virtual NullAsyncResult create_pg(PGInfo&& pg_info, trace_id_t tid = 0) = 0;
-    virtual NullAsyncResult start_replace_member(pg_id_t id, peer_id_t const& old_member, PGMember const& new_member,
+    virtual NullAsyncResult replace_member(pg_id_t id, peer_id_t const& old_member, PGMember const& new_member,
                                            u_int32_t commit_quorum = 0, trace_id_t tid = 0) = 0;
     virtual NullAsyncResult complete_replace_member(pg_id_t id, peer_id_t const& old_member, PGMember const& new_member,
                                            u_int32_t commit_quorum = 0, trace_id_t tid = 0) = 0;

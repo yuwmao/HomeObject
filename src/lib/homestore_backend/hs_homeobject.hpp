@@ -47,6 +47,7 @@ private:
     inline static auto const _snp_ctx_meta_name = std::string("SnapshotContext");
     inline static auto const _snp_rcvr_meta_name = std::string("SnapshotReceiver");
     inline static auto const _snp_rcvr_shard_list_meta_name = std::string("SnapshotReceiverShardList");
+    inline static auto const _replace_member_ctx_meta_name = std::string("ReplaceMemberContext");
     static constexpr uint64_t HS_CHUNK_SIZE = 2 * Gi;
     static constexpr uint32_t _data_block_size = 4 * Ki;
     static uint64_t _hs_chunk_size;
@@ -63,7 +64,7 @@ private:
 
     PGManager::NullAsyncResult _create_pg(PGInfo&& pg_info, std::set< peer_id_t > const& peers,
                                           trace_id_t tid) override;
-    PGManager::NullAsyncResult _start_replace_member(pg_id_t id, peer_id_t const& old_member, PGMember const& new_member,
+    PGManager::NullAsyncResult _replace_member(pg_id_t id, peer_id_t const& old_member, PGMember const& new_member,
                                                uint32_t commit_quorum, trace_id_t tid) override;
     PGManager::NullAsyncResult _complete_replace_member(pg_id_t id, peer_id_t const& old_member, PGMember const& new_member,
                                                uint32_t commit_quorum, trace_id_t tid) override;

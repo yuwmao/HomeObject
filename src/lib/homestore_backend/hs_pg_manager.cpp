@@ -249,7 +249,7 @@ void HSHomeObject::on_create_pg_message_commit(int64_t lsn, sisl::blob const& he
     }
 }
 
-PGManager::NullAsyncResult HSHomeObject::_start_replace_member(pg_id_t pg_id, peer_id_t const& old_member_id,
+PGManager::NullAsyncResult HSHomeObject::_replace_member(pg_id_t pg_id, peer_id_t const& old_member_id,
                                                          PGMember const& new_member, uint32_t commit_quorum,
                                                          trace_id_t tid) {
     if (is_shutting_down()) {
@@ -283,7 +283,7 @@ PGManager::NullAsyncResult HSHomeObject::_start_replace_member(pg_id_t pg_id, pe
     in_replica.name[new_member.name.size()] = '\0';
 
     return hs_repl_service()
-        .start_replace_member(group_id, out_replica, in_replica, commit_quorum, tid)
+        .replace_member(group_id, out_replica, in_replica, commit_quorum, tid)
         .via(executor_)
         .thenValue([this](auto&& v) mutable -> PGManager::NullAsyncResult {
             decr_pending_request_num();

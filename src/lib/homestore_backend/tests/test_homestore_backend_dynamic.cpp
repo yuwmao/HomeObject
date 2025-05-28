@@ -95,7 +95,7 @@ TEST_F(HomeObjectFixture, ReplaceMember) {
     LOGINFO("start replace member, pg={}", pg_id);
     run_on_pg_leader(pg_id, [&]() {
         auto r = _obj_inst->pg_manager()
-                     ->start_replace_member(pg_id, out_member_id, PGMember{in_member_id, "new_member", 0})
+                     ->replace_member(pg_id, out_member_id, PGMember{in_member_id, "new_member", 0})
                      .get();
         ASSERT_TRUE(r);
     });
@@ -121,14 +121,6 @@ TEST_F(HomeObjectFixture, ReplaceMember) {
     });
 
     g_helper->sync();
-    verify_start_replace_member_result(pg_id, out_member_id, in_member_id);
-    run_on_pg_leader(pg_id, [&]() {
-        LOGINFO("complete replace member, pg={}", pg_id);
-        auto r = _obj_inst->pg_manager()
-                     ->complete_replace_member(pg_id, out_member_id, PGMember{in_member_id, "new_member"})
-                     .get();
-        ASSERT_TRUE(r);
-    });
     // step 5: Verify no pg related data in out_member
     if (out_member_id == g_helper->my_replica_id()) {
         while (am_i_in_pg(pg_id)) {
@@ -210,7 +202,7 @@ TEST_F(HomeObjectFixture, RestartFollowerAfterBaselineResync) {
 // }
 
 // Test case to restart new member during baseline resync, it will start 4 process to simulate the 4 replicas, let's say
-// P0, P1, P2 and P3. P0, P1, P2 are the original members of the pg, P3 is the spare replica. After the start_replace_member
+// P0, P1, P2 and P3. P0, P1, P2 are the original members of the pg, P3 is the spare replica. After the replace_member
 // happens, P3 will join the pg, and then kill itself(sigkill) to simulate the restart during baseline resync. As P0 is
 // the original process who spawn the other 3 processes, so P0 will also help to spawn a new process to simulate the new
 // member restart.
@@ -296,7 +288,7 @@ void HomeObjectFixture::RestartFollowerDuringBaselineResyncUsingSigKill(uint64_t
         LOGINFO("start replace member, pg={}", pg_id);
         run_on_pg_leader(pg_id, [&]() {
             auto r = _obj_inst->pg_manager()
-                         ->start_replace_member(pg_id, out_member_id, PGMember{in_member_id, "new_member", 0})
+                         ->replace_member(pg_id, out_member_id, PGMember{in_member_id, "new_member", 0})
                          .get();
             ASSERT_TRUE(r);
         });
@@ -441,7 +433,7 @@ TEST_F(HomeObjectFixture, RestartFollowerDuringBaselineResyncUsingGracefulShutdo
 
     run_on_pg_leader(pg_id, [&]() {
         auto r = _obj_inst->pg_manager()
-                     ->start_replace_member(pg_id, out_member_id, PGMember{in_member_id, "new_member", 0})
+                     ->replace_member(pg_id, out_member_id, PGMember{in_member_id, "new_member", 0})
                      .get();
         ASSERT_TRUE(r);
     });
@@ -591,7 +583,7 @@ void HomeObjectFixture::RestartLeaderDuringBaselineResyncUsingSigKill(uint64_t f
 
         run_on_pg_leader(pg_id, [&]() {
             auto r = _obj_inst->pg_manager()
-                         ->start_replace_member(pg_id, out_member_id, PGMember{in_member_id, "new_member", 0})
+                         ->replace_member(pg_id, out_member_id, PGMember{in_member_id, "new_member", 0})
                          .get();
             ASSERT_TRUE(r);
         });

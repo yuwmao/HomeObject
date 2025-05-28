@@ -9,7 +9,7 @@ PGManager::NullAsyncResult MemoryHomeObject::_create_pg(PGInfo&& pg_info, std::s
     return folly::makeSemiFuture< PGManager::NullResult >(folly::Unit());
 }
 
-PGManager::NullAsyncResult MemoryHomeObject::_start_replace_member(pg_id_t id, peer_id_t const& old_member,
+PGManager::NullAsyncResult MemoryHomeObject::_replace_member(pg_id_t id, peer_id_t const& old_member,
                                                              PGMember const& new_member, uint32_t commit_quorum,
                                                              trace_id_t tid) {
     (void)old_member;
