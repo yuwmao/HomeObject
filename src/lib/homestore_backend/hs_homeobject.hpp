@@ -737,7 +737,7 @@ public:
      * @param member_out Member which is removed from group
      * @param member_in Member which is added to group
      * */
-    void on_pg_start_replace_member(homestore::group_id_t group_id, std::string& task_id,
+    void on_pg_start_replace_member(homestore::group_id_t group_id, const std::string& task_id,
                                     const homestore::replica_member_info& member_out,
                                     const homestore::replica_member_info& member_in, trace_id_t tid);
 
@@ -748,7 +748,7 @@ public:
      * @param member_out Member which is removed from group
      * @param member_in Member which is added to group
      * */
-    void on_pg_complete_replace_member(homestore::group_id_t group_id, std::string& task_id,
+    void on_pg_complete_replace_member(homestore::group_id_t group_id, const std::string& task_id,
                                        const homestore::replica_member_info& member_out,
                                        const homestore::replica_member_info& member_in, trace_id_t tid);
 

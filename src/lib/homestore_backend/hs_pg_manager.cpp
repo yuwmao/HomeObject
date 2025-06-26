@@ -327,7 +327,7 @@ replica_member_info HSHomeObject::to_replica_member_info(const PGMember& pg_memb
     return replica_info;
 }
 
-void HSHomeObject::on_pg_start_replace_member(group_id_t group_id, std::string& task_id, const replica_member_info& member_out,
+void HSHomeObject::on_pg_start_replace_member(group_id_t group_id, const std::string& task_id, const replica_member_info& member_out,
                                               const replica_member_info& member_in, trace_id_t tid) {
     auto lg = std::shared_lock(_pg_lock);
     for (const auto& iter : _pg_map) {
@@ -352,18 +352,18 @@ void HSHomeObject::on_pg_start_replace_member(group_id_t group_id, std::string& 
             hs_pg->pg_sb_->num_dynamic_members = pg->pg_info_.members.size();
             // Update the latest membership info to pg superblk.
             hs_pg->pg_sb_.write();
-            LOGI("PG start replace member done member_out={} member_in={}, member_nums={}, trace_id={}",
-                 boost::uuids::to_string(member_out.id), boost::uuids::to_string(member_in.id),
+            LOGI("PG start replace member done, task_id={} member_out={} member_in={}, member_nums={}, trace_id={}",
+                 task_id, boost::uuids::to_string(member_out.id), boost::uuids::to_string(member_in.id),
                  pg->pg_info_.members.size(), tid);
             return;
         }
     }
 
-    LOGE("PG replace member failed member_out={} member_in={}, trace_id={}", boost::uuids::to_string(member_out.id),
-         boost::uuids::to_string(member_in.id), tid);
+    LOGE("PG replace member failed task_id={}, member_out={} member_in={}, trace_id={}", task_id,
+         boost::uuids::to_string(member_out.id), boost::uuids::to_string(member_in.id), tid);
 }
 
-void HSHomeObject::on_pg_complete_replace_member(group_id_t group_id, std::string& task_id, const replica_member_info& member_out,
+void HSHomeObject::on_pg_complete_replace_member(group_id_t group_id, const std::string& task_id, const replica_member_info& member_out,
                                                  const replica_member_info& member_in, trace_id_t tid) {
     auto lg = std::shared_lock(_pg_lock);
     for (const auto& iter : _pg_map) {
