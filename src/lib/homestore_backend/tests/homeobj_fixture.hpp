@@ -559,7 +559,7 @@ public:
         EXPECT_EQ(lhs.current_leader, rhs.current_leader);
     }
 
-    bool verify_start_replace_member_result(pg_id_t pg_id, uuid_t task_id, peer_id_t out_member_id,
+    bool verify_start_replace_member_result(pg_id_t pg_id, std::string& task_id, peer_id_t out_member_id,
                                             peer_id_t in_member_id) {
         auto hs_pg = _obj_inst->get_hs_pg(pg_id);
         RELEASE_ASSERT(hs_pg, "PG not found");
@@ -600,7 +600,7 @@ public:
         return hs_pg->get_snp_progress();
     }
 
-    bool verify_complete_replace_member_result(pg_id_t pg_id, uuid_t task_id, peer_id_t out_member_id,
+    bool verify_complete_replace_member_result(pg_id_t pg_id, std::string& task_id, peer_id_t out_member_id,
                                                peer_id_t in_member_id) {
         auto hs_pg = _obj_inst->get_hs_pg(pg_id);
         RELEASE_ASSERT(hs_pg, "PG not found");
