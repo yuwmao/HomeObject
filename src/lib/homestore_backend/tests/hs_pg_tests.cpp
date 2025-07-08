@@ -160,12 +160,13 @@ TEST_F(HomeObjectFixture, PGRecoveryTest) {
 }
 
 TEST_F(HomeObjectFixture, PGRecoveryWithDiskLostTest) {
+    g_helper->sync();
     auto id = _obj_inst->our_uuid();
     // test recovery with pristine state firstly
     restart();
     EXPECT_EQ(id, _obj_inst->our_uuid());
 
-    uint64_t num_pgs = 10;
+    uint64_t num_pgs = 6;
     // create 10 pg
     for (pg_id_t i = 1; i <= num_pgs; i++) {
         pg_id_t pg_id{i};
@@ -177,13 +178,14 @@ TEST_F(HomeObjectFixture, PGRecoveryWithDiskLostTest) {
     pg_map.swap(_obj_inst->_pg_map);
 
     // restart with one disk lost
-    restart(0, 0, 1);
+    LOGI("restart with one disk lost")
+    restart(0, 0, 1, true);
 
-    std::set< pg_id_t > lost_disk_pg{2, 4, 6, 8, 10};
+    std::set< pg_id_t > lost_disk_pg{2, 4, 6};
     EXPECT_EQ(id, _obj_inst->our_uuid());
 
     // verify pg map
-    EXPECT_EQ(10, _obj_inst->_pg_map.size());
+    EXPECT_EQ(num_pgs, _obj_inst->_pg_map.size());
 
     for (auto const& [id, pg] : _obj_inst->_pg_map) {
         EXPECT_TRUE(pg_map.contains(id));
@@ -206,11 +208,12 @@ TEST_F(HomeObjectFixture, PGRecoveryWithDiskLostTest) {
     }
 
     // restart with disk back
+    LOGI("restart with new disks")
     restart();
     EXPECT_EQ(id, _obj_inst->our_uuid());
 
     // verify pg map
-    EXPECT_EQ(10, _obj_inst->_pg_map.size());
+    EXPECT_EQ(num_pgs, _obj_inst->_pg_map.size());
 
     for (auto const& [id, pg] : _obj_inst->_pg_map) {
         EXPECT_TRUE(pg_map.contains(id));
@@ -226,11 +229,16 @@ TEST_F(HomeObjectFixture, PGRecoveryWithDiskLostTest) {
             // pg on lost disk should not have stats
             EXPECT_EQ(stats.id, id);
             EXPECT_EQ(stats.pg_state & static_cast< uint64_t >(PGStateMask::DISK_DOWN), 0);
-
             LOGI("PG {} on lost disk is back, stats={}", id, stats.to_string());
+            destroy_pg(id);
         } else {
             LOGI("Test get stats after disklost, pg={} stats={}", id, stats.to_string());
         }
+    }
+    LOGI("verify writing data on new disk")
+    g_helper->sync();
+    for (pg_id_t i = num_pgs; i <= num_pgs + 4; i++) {
+        create_pg(i);
     }
 }
 

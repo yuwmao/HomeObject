@@ -434,6 +434,8 @@ std::optional< pg_id_t > HSHomeObject::get_pg_id_with_group_id(group_id_t group_
     }
 }
 
+void HSHomeObject::_destroy_pg(pg_id_t pg_id) { pg_destroy(pg_id); }
+
 void HSHomeObject::pg_destroy(pg_id_t pg_id) {
     LOGI("Destroying pg={}", pg_id);
     mark_pg_destroyed(pg_id);

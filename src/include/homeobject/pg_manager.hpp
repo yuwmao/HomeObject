@@ -166,6 +166,12 @@ public:
      * @param pg_ids The vector to store the pg_ids.
      */
     virtual void get_pg_ids(std::vector< pg_id_t >& pg_ids) const = 0;
+
+    /**
+     * @brief Destroys a PG (Placement Group) identified by its ID.
+     * @param pg_id The ID of the PG.
+     */
+    virtual void destroy_pg(pg_id_t pg_id);
 };
 
 } // namespace homeobject
