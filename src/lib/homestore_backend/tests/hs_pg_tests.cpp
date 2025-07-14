@@ -239,6 +239,29 @@ TEST_F(HomeObjectFixture, PGRecoveryWithDiskLostTest) {
     g_helper->sync();
     for (pg_id_t i = num_pgs; i <= num_pgs + 4; i++) {
         create_pg(i);
+        auto shard_info = create_shard(i, 64 * Mi);
+        auto shard_id = shard_info.id;
+        auto s = _obj_inst->shard_manager()->get_shard(shard_id).get();
+        ASSERT_TRUE(!!s);
+        LOGINFO("Created shard {} on pg={}", shard_info.id, i);
+        put_blob(shard_id, Blob{sisl::io_blob_safe(512u, 512u), "test_blob", 0ul});
+    }
+
+    LOGI("restart again to verify new disk data")
+    restart();
+    std::map< pg_id_t, std::vector< shard_id_t > > pg_shard_id_vec;
+    std::map< pg_id_t, blob_id_t > pg_blob_id;
+    for (pg_id_t i = num_pgs; i <= num_pgs + 4; i++) {
+        create_pg(i);
+        pg_blob_id[i] = 0;
+        auto shard_info = create_shard(i, 64 * Mi);
+        auto shard_id = shard_info.id;
+        auto s = _obj_inst->shard_manager()->get_shard(shard_id).get();
+        ASSERT_TRUE(!!s);
+        pg_shard_id_vec[i].emplace_back(shard_id);
+        LOGINFO("Created shard {} on pg={}", shard_info.id, i);
+        put_blobs(pg_shard_id_vec, 1, pg_blob_id);
+        verify_get_blob(pg_shard_id_vec, 1, false, false, pg_blob_id);
     }
 }
 
