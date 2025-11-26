@@ -12,6 +12,136 @@ TEST_F(HomeObjectFixture, BasicEquivalence) {
     EXPECT_EQ(_obj_inst.get(), dynamic_cast< homeobject::HomeObject* >(blob_mgr.get()));
 }
 
+TEST_F(HomeObjectFixture, BasicPutGetDelBlobCrossBlobHeaderVersion) {
+    // test recovery with pristine state firstly
+    restart();
+
+    auto num_pgs = SISL_OPTIONS["num_pgs"].as< uint64_t >();
+    auto num_shards_per_pg = SISL_OPTIONS["num_shards"].as< uint64_t >() / num_pgs;
+
+    auto num_blobs_per_shard = SISL_OPTIONS["num_blobs"].as< uint64_t >() / num_shards_per_pg;
+    std::map< pg_id_t, std::vector< shard_id_t > > pg_shard_id_vec;
+
+    // pg -> next blob_id in this pg
+    std::map< pg_id_t, blob_id_t > pg_blob_id;
+
+    for (uint64_t i = 1; i <= num_pgs; i++) {
+        create_pg(i);
+        pg_blob_id[i] = 0;
+        for (uint64_t j = 0; j < num_shards_per_pg; j++) {
+            auto shard = create_shard(i, 64 * Mi);
+            pg_shard_id_vec[i].emplace_back(shard.id);
+            LOGINFO("pg={} shard {}", i, shard.id);
+        }
+    }
+#ifdef _PRERELEASE
+    set_basic_flip("blob_header_use_v1", std::numeric_limits< int >::max(), 100);
+    // Put blob for all shards in all pg's.
+    put_blobs(pg_shard_id_vec, num_blobs_per_shard, pg_blob_id);
+    remove_flip("blob_header_use_v1");
+#endif
+
+
+    // Verify all get blobs
+    verify_get_blob(pg_shard_id_vec, num_blobs_per_shard);
+
+    // Verify the stats
+    verify_obj_count(num_pgs, num_blobs_per_shard, num_shards_per_pg, false /* deleted */);
+
+    // Restart homeobject
+    restart();
+
+    // Verify all get blobs after restart
+    verify_get_blob(pg_shard_id_vec, num_blobs_per_shard);
+
+    // Verify the stats after restart
+    verify_obj_count(num_pgs, num_blobs_per_shard, num_shards_per_pg, false /* deleted */);
+
+    //  Put blob to verify v2 header
+    put_blobs(pg_shard_id_vec, num_blobs_per_shard, pg_blob_id);
+
+    // Verify all get blobs with random offset and length.
+    verify_get_blob(pg_shard_id_vec, num_blobs_per_shard, true /* use_random_offset */);
+
+    // Verify the stats after put blobs after restart
+    verify_obj_count(num_pgs, num_blobs_per_shard * 2, num_shards_per_pg, false /* deleted */);
+
+    // Delete all blobs
+    del_all_blobs(pg_shard_id_vec, num_blobs_per_shard, pg_blob_id);
+
+    // Verify the stats after restart
+    verify_obj_count(num_pgs, num_blobs_per_shard * 2, num_shards_per_pg, true /* deleted */);
+
+    // Delete again should have no errors.
+    for (const auto& [pg_id, shard_vec] : pg_shard_id_vec) {
+        // for each pg, blob_id start for 0
+        blob_id_t blob_id{0};
+
+        run_on_pg_leader(pg_id, [&]() {
+            for (const auto& shard_id : shard_vec) {
+                for (uint64_t k = 0; k < num_blobs_per_shard; k++) {
+                    auto tid = generateRandomTraceId();
+                    auto g = _obj_inst->blob_manager()->del(shard_id, blob_id, tid).get();
+                    ASSERT_TRUE(g);
+                    LOGINFO("delete blob shard {} blob {}, trace_id={}", shard_id, blob_id, tid);
+                    blob_id++;
+                }
+            }
+        });
+    }
+    verify_obj_count(num_pgs, num_blobs_per_shard * 2, num_shards_per_pg, true /* deleted */);
+
+    // After delete all blobs, get should fail
+    for (const auto& [pg_id, shard_vec] : pg_shard_id_vec) {
+        blob_id_t blob_id{0};
+        for (; blob_id != pg_blob_id[pg_id];) {
+            for (const auto& shard_id : shard_vec) {
+                for (uint64_t k = 0; k < num_blobs_per_shard; k++) {
+                    auto g = _obj_inst->blob_manager()->get(shard_id, blob_id).get();
+                    ASSERT_TRUE(!g);
+                    blob_id++;
+                }
+            }
+        }
+    }
+
+    // all the deleted blobs should be tombstone in index table
+    for (const auto& [pg_id, shard_vec] : pg_shard_id_vec) {
+        auto hs_pg = _obj_inst->get_hs_pg(pg_id);
+        ASSERT_TRUE(hs_pg != nullptr);
+        auto index_table = hs_pg->index_table_;
+        blob_id_t blob_id{0};
+        for (; blob_id != pg_blob_id[pg_id];) {
+            for (const auto& shard_id : shard_vec) {
+                auto g = _obj_inst->get_blob_from_index_table(index_table, shard_id, blob_id);
+                ASSERT_FALSE(!!g);
+                EXPECT_EQ(BlobErrorCode::UNKNOWN_BLOB, g.error().getCode());
+                blob_id++;
+            }
+        }
+    }
+
+    // Restart homeobject
+    restart();
+
+    // After restart, for all deleted blobs, get should fail
+    for (const auto& [pg_id, shard_vec] : pg_shard_id_vec) {
+        blob_id_t blob_id{0};
+        for (; blob_id != pg_blob_id[pg_id];) {
+            for (const auto& shard_id : shard_vec) {
+                for (uint64_t k = 0; k < num_blobs_per_shard; k++) {
+                    auto g = _obj_inst->blob_manager()->get(shard_id, blob_id).get();
+                    ASSERT_TRUE(!g);
+                    blob_id++;
+                }
+            }
+        }
+    }
+
+    // Verify the stats after restart
+    verify_obj_count(num_pgs, num_blobs_per_shard * 2, num_shards_per_pg, true /* deleted */);
+}
+
 TEST_F(HomeObjectFixture, BasicPutGetDelBlobWithRestart) {
     // test recovery with pristine state firstly
     restart();

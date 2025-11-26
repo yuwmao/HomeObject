@@ -181,7 +181,7 @@ BlobManager::AsyncResult< blob_id_t > HSHomeObject::_put_blob(ShardInfo const& s
     }
 #ifdef _PRERELEASE
     if (iomgr_flip::instance()->test_flip("blob_header_use_v1")) {
-        LOGW("Use old v1 blob header hash computation");
+        BLOGE(tid, shard.id, new_blob_id, "blob_header_use_v1 triggered, use old v1 blob header hash computation");
         req->blob_header()->version = 0x01;
     }
 #endif
@@ -602,6 +602,7 @@ void HSHomeObject::compute_blob_payload_hash(BlobHeader::HashAlgorithm algorithm
         auto hash32 = crc32_ieee(init_crc32, blob_bytes, blob_size);
         RELEASE_ASSERT(sizeof(uint32_t) <= hash_len, "Hash length invalid");
         if (version == 0x01) {
+            LOGD("compute_blob_payload_hash using v1 algorithm");
             if (user_key_size != 0) { hash32 = crc32_ieee(hash32, user_key_bytes, user_key_size); }
         }
         std::memcpy(hash_bytes, r_cast< uint8_t* >(&hash32), sizeof(uint32_t));

@@ -172,7 +172,7 @@ public:
         bool valid() const { return ((magic == data_header_magic) && (version <= data_header_version)); }
 
         uint64_t magic{data_header_magic};
-        mutable uint8_t version{data_header_version};
+        uint8_t version{data_header_version};
         data_type_t type{data_type_t::BLOB_INFO};
     };
 
@@ -442,16 +442,19 @@ public:
             case HashAlgorithm::CRC32: {
                 std::memset(header_hash, 0, blob_max_hash_len);
                 uint32_t computed_hash = 0;
-#ifdef _PRERELEASE
-                if (iomgr_flip::instance()->test_flip("blob_header_use_v1")) {
-                    LOGW("Use old v1 blob header hash computation");
-                    version = 0x01;
-                }
-#endif
-                if (version == 0x01) {
-                    // hard code 114 for v1 size
+                auto ver = this->version;
+// #ifdef _PRERELEASE
+//                 if (iomgr_flip::instance()->test_flip("blob_header_use_v1")) {
+//                     LOGW("Use old v1 blob header hash computation");
+//                     ver = 0x01;
+//                 }
+// #endif
+                if (ver == 0x01) {
+                    // hard code 114 bytes for v1 header size
+                    LOGI("do_seal using v1 algorithm");
                     computed_hash = crc32_ieee(0, (uint8_t*)this, 114);
-                } else if (version == 0x02) {
+                } else if (ver == 0x02) {
+                    LOGI("do_seal using v2 algorithm");
                     computed_hash = crc32_ieee(0, (uint8_t*)this, sizeof(BlobHeader));
                 }
 
@@ -474,7 +477,7 @@ public:
     };
 #pragma pack()
     // size of BlobHeader should be smaller than _data_block_size
-    static_assert(sizeof(BlobHeader) < _data_block_size);
+    static_assert(sizeof(BlobHeader) == _data_block_size);
     struct BlobInfo {
         shard_id_t shard_id;
         blob_id_t blob_id;
