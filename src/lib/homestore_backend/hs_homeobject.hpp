@@ -164,7 +164,7 @@ public:
     };
 
     struct DataHeader {
-        static constexpr uint8_t data_header_version = 0x01;
+        static constexpr uint8_t data_header_version = 0x02;
         static constexpr uint64_t data_header_magic = 0x21fdffdba8d68fc6; // echo "BlobHeader" | md5sum
 
         enum class data_type_t : uint32_t { SHARD_INFO = 1, BLOB_INFO = 2 };
@@ -172,7 +172,7 @@ public:
         bool valid() const { return ((magic == data_header_magic) && (version <= data_header_version)); }
 
         uint64_t magic{data_header_magic};
-        uint8_t version{data_header_version};
+        mutable uint8_t version{data_header_version};
         data_type_t type{data_type_t::BLOB_INFO};
     };
 
@@ -384,6 +384,8 @@ public:
     // Padding of zeroes is added to make sure the whole payload be aligned to device block size.
     struct BlobHeader : DataHeader {
         static constexpr uint64_t blob_max_hash_len = 32;
+        static constexpr uint64_t max_blocks = 64;
+        static constexpr uint64_t max_user_key_length = 1024 + 1;
 
         enum class HashAlgorithm : uint8_t {
             NONE = 0,
@@ -401,6 +403,9 @@ public:
         uint64_t object_offset; // Offset of this blob in the object. Provided by GW.
         uint32_t data_offset;   // Offset of actual data blob stored after the metadata.
         uint32_t user_key_size; // Actual size of the user key.
+        uint8_t user_key[max_user_key_length]{};
+        uint8_t block_hashes[max_blocks][blob_max_hash_len]{};
+        uint8_t padding[909]{};  //data_block_size is 4K, so total size of BlobHeader is 4096 bytes
 
         std::string to_string() const {
             return fmt::format("magic={:#x} version={} shard={:#x} blob_size={} user_size={} algo={} hash={:np}\n",
@@ -436,7 +441,19 @@ public:
                 return true;
             case HashAlgorithm::CRC32: {
                 std::memset(header_hash, 0, blob_max_hash_len);
-                uint32_t computed_hash = crc32_ieee(0, (uint8_t*)this, sizeof(BlobHeader));
+                uint32_t computed_hash = 0;
+#ifdef _PRERELEASE
+                if (iomgr_flip::instance()->test_flip("blob_header_use_v1")) {
+                    LOGW("Use old v1 blob header hash computation");
+                    version = 0x01;
+                }
+#endif
+                if (version == 0x01) {
+                    // hard code 114 for v1 size
+                    computed_hash = crc32_ieee(0, (uint8_t*)this, 114);
+                } else if (version == 0x02) {
+                    computed_hash = crc32_ieee(0, (uint8_t*)this, sizeof(BlobHeader));
+                }
 
                 static_assert(sizeof(header_hash) == blob_max_hash_len && blob_max_hash_len >= sizeof(uint32_t),
                               "buffer too small!!");
@@ -456,7 +473,8 @@ public:
         }
     };
 #pragma pack()
-
+    // size of BlobHeader should be smaller than _data_block_size
+    static_assert(sizeof(BlobHeader) < _data_block_size);
     struct BlobInfo {
         shard_id_t shard_id;
         blob_id_t blob_id;
@@ -929,7 +947,7 @@ public:
     blob_put_get_blk_alloc_hints(sisl::blob const& header, cintrusive< homestore::repl_req_ctx >& ctx);
     void compute_blob_payload_hash(BlobHeader::HashAlgorithm algorithm, const uint8_t* blob_bytes, size_t blob_size,
                                    const uint8_t* user_key_bytes, size_t user_key_size, uint8_t* hash_bytes,
-                                   size_t hash_len) const;
+                                   size_t hash_len, uint8_t version) const;
 
     std::shared_ptr< homestore::IndexTableBase >
     recover_index_table(homestore::superblk< homestore::index_table_sb >&& sb);
