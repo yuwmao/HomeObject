@@ -363,6 +363,7 @@ BlobManager::AsyncResult< Blob > HSHomeObject::_get_blob_data(const shared< home
                 return folly::makeUnexpected(BlobError(BlobErrorCode::READ_FAILED));
             }
 
+            //compatible with v1 blob header, becaude in v1, user_key is put just behind the user_key_size.
             std::string user_key = std::string((const char*)header->user_key, (size_t)header->user_key_size);
 
             uint8_t const* blob_bytes = read_buf.bytes() + header->data_offset;
@@ -370,6 +371,8 @@ BlobManager::AsyncResult< Blob > HSHomeObject::_get_blob_data(const shared< home
             compute_blob_payload_hash(header->hash_algorithm, blob_bytes, header->blob_size,
                                       uintptr_cast(user_key.data()), header->user_key_size, computed_hash,
                                       BlobHeader::blob_max_hash_len, header->version);
+            BLOGD(tid, shard_id, blob_id, "Hash mismatch header, [header={}] [computed={:np}]", header->to_string(),
+      spdlog::to_hex(computed_hash, computed_hash + BlobHeader::blob_max_hash_len));
             if (std::memcmp(computed_hash, header->hash, BlobHeader::blob_max_hash_len) != 0) {
                 BLOGE(tid, shard_id, blob_id, "Hash mismatch header, [header={}] [computed={:np}]", header->to_string(),
                       spdlog::to_hex(computed_hash, computed_hash + BlobHeader::blob_max_hash_len));
@@ -602,7 +605,7 @@ void HSHomeObject::compute_blob_payload_hash(BlobHeader::HashAlgorithm algorithm
         auto hash32 = crc32_ieee(init_crc32, blob_bytes, blob_size);
         RELEASE_ASSERT(sizeof(uint32_t) <= hash_len, "Hash length invalid");
         if (version == 0x01) {
-            LOGD("compute_blob_payload_hash using v1 algorithm");
+            LOGD("compute_blob_payload_hash using v1 algorithm, user_key={}", std::string(user_key_bytes, user_key_bytes+user_key_size));
             if (user_key_size != 0) { hash32 = crc32_ieee(hash32, user_key_bytes, user_key_size); }
         }
         std::memcpy(hash_bytes, r_cast< uint8_t* >(&hash32), sizeof(uint32_t));

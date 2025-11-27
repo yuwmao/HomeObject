@@ -401,8 +401,12 @@ void HomeObjectFixture::ReplaceMember(bool withGC) {
     // replicas
     pg_blob_id[pg_id] = 0;
 
+#ifdef _PRERELEASE
+    set_basic_flip("blob_header_use_v1", std::numeric_limits< int >::max(), 100);
     // put and verify blobs in the pg, excluding the spare replicas
     put_blobs(pg_shard_id_vec, num_blobs_per_shard, pg_blob_id);
+    remove_flip("blob_header_use_v1");
+#endif
 
     verify_get_blob(pg_shard_id_vec, num_blobs_per_shard);
     verify_obj_count(1, num_shards_per_pg, num_blobs_per_shard, false);

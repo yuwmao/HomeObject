@@ -217,8 +217,8 @@ int HSHomeObject::SnapshotReceiveHandler::process_blobs_snapshot_data(ResyncBlob
         auto blob_data = blob->data()->Data();
 
         // Check integrity of normal blobs
+        auto header = r_cast< BlobHeader const* >(blob_data);
         if (blob->state() != static_cast< uint8_t >(ResyncBlobState::CORRUPTED)) {
-            auto header = r_cast< BlobHeader const* >(blob_data);
             if (!header->valid()) {
                 std::unique_lock< std::shared_mutex > lock(ctx_->progress_lock);
                 ctx_->progress.error_count++;
@@ -244,13 +244,33 @@ int HSHomeObject::SnapshotReceiveHandler::process_blobs_snapshot_data(ResyncBlob
             std::unique_lock< std::shared_mutex > lock(ctx_->progress_lock);
             ctx_->progress.corrupted_blobs++;
         }
+        std::shared_ptr< sisl::io_blob_safe > aligned_buf;
+        if(header->version==0x01) {
+            sisl::io_blob_safe header_buf = std::move(sisl::io_blob_safe{sizeof(BlobHeader), _data_block_size});
+            std::memcpy(header_buf.bytes(), header, 114 + header->user_key_size);
+            // convert to v2
+            LOGI("Converting blob_id={} header from v1 to v2 during snapshot receive", blob->blob_id());
+            auto new_header = r_cast< BlobHeader* >(header_buf.bytes());
+            new_header->version = DataHeader::data_header_version;
+            home_obj_.compute_blob_payload_hash(new_header->hash_algorithm, blob_data + header->data_offset,
+                                                new_header->blob_size, header->user_key, new_header->user_key_size,
+                                                new_header->hash, BlobHeader::blob_max_hash_len, new_header->version);
+            new_header->seal();
 
-        // Alloc & persist blob data
-        auto data_size = blob->data()->size();
-        std::shared_ptr< sisl::io_blob_safe > aligned_buf =
-            make_shared< sisl::io_blob_safe >(sisl::round_up(data_size, io_align), io_align);
-        std::memcpy(aligned_buf->bytes(), blob_data, data_size);
-        data_bufs.emplace_back(aligned_buf);
+            // Alloc & persist blob data
+            auto data_size = sizeof(BlobHeader) + header->blob_size;
+            aligned_buf = make_shared< sisl::io_blob_safe >(sisl::round_up(data_size, io_align), io_align);
+            std::memcpy(aligned_buf->bytes(), &header_buf, header_buf.size());
+            std::memcpy(aligned_buf->bytes() + header_buf.size(), blob_data + header->data_offset, header->blob_size);
+            data_bufs.emplace_back(aligned_buf);
+        } else {
+            // Alloc & persist blob data
+            auto data_size = blob->data()->size();
+            aligned_buf =
+                make_shared< sisl::io_blob_safe >(sisl::round_up(data_size, io_align), io_align);
+            std::memcpy(aligned_buf->bytes(), blob_data, data_size);
+            data_bufs.emplace_back(aligned_buf);
+        }
 
         homestore::MultiBlkId blk_id;
         homestore::BlkAllocStatus status;

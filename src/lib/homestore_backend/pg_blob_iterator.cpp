@@ -266,9 +266,6 @@ BlobManager::AsyncResult< blob_read_result > HSHomeObject::PGBlobIterator::load_
             }
 
             std::string user_key = std::string((const char*)header->user_key, (size_t)header->user_key_size);
-            if (header->version == 0x01) {
-
-            }
 
             uint8_t const* blob_bytes = read_buf.bytes() + header->data_offset;
             uint8_t computed_hash[BlobHeader::blob_max_hash_len]{};
