@@ -772,6 +772,12 @@ void HSHomeObject::add_pg_to_map(unique< HS_PG > hs_pg) {
     RELEASE_ASSERT(hs_pg->pg_info_.replica_set_uuid == hs_pg->repl_dev_->group_id(),
                    "PGInfo replica set uuid mismatch with ReplDev instance for {}",
                    boost::uuids::to_string(hs_pg->pg_info_.replica_set_uuid));
+
+    // Reconcile membership on recovery to fix any potential inconsistencies
+    // This ensures that if a crash happened during replace_member operations,
+    // the membership will be corrected on restart
+    hs_pg->reconcile_membership();
+
     auto lg = std::scoped_lock(_pg_lock);
     auto id = hs_pg->pg_info_.id;
     auto [it1, _] = _pg_map.try_emplace(id, std::move(hs_pg));
@@ -948,6 +954,63 @@ void HSHomeObject::HS_PG::get_peer_info(std::vector< peer_info >& members) const
         }
         members.emplace_back(peer);
     }
+}
+
+void HSHomeObject::HS_PG::reconcile_membership() {
+    auto const replication_status = repl_dev_->get_replication_status();
+    if (replication_status.empty()) {
+        LOGW("Replication status is empty, skip membership sync for pg={}", pg_info_.id);
+        return;
+    }
+
+    // Build new membership from raft config
+    std::set< PGMember > new_members;
+    for (auto const& r : replication_status) {
+        // Only sync voting members (learners are excluded)
+        if (r.can_vote_) {
+            // Try to preserve existing member info (name, priority)
+            auto existing = pg_info_.members.find(PGMember(r.id_));
+            if (existing != pg_info_.members.end()) {
+                // Keep the existing member with its name and priority
+                new_members.insert(*existing);
+            } else {
+                // New member not in our records, add with default name
+                PGMember new_member(r.id_);
+                new_member.priority = r.priority_;
+                new_members.insert(std::move(new_member));
+                LOGI("Adding new member {} to pg={} from raft config", boost::uuids::to_string(r.id_), pg_info_.id);
+            }
+        }
+    }
+
+    // Check if membership changed
+    if (new_members == pg_info_.members) {
+        LOGD("Membership already in sync for pg={}, no update needed", pg_info_.id);
+        return;
+    }
+
+    LOGI("Syncing membership for pg={}: old_size={}, new_size={}", pg_info_.id, pg_info_.members.size(),
+         new_members.size());
+
+    // Update in-memory membership
+    pg_info_.members = std::move(new_members);
+
+    // Update superblock
+    uint32_t i{0};
+    pg_members* sb_members = pg_sb_->get_pg_members_mutable();
+    for (auto const& m : pg_info_.members) {
+        sb_members[i].id = m.id;
+        DEBUG_ASSERT(m.name.size() <= PGMember::max_name_len, "member name exceeds max len, name={}", m.name);
+        auto name_len = std::min(m.name.size(), PGMember::max_name_len);
+        std::strncpy(sb_members[i].name, m.name.c_str(), name_len);
+        sb_members[i].name[name_len] = '\0';
+        sb_members[i].priority = m.priority;
+        ++i;
+    }
+    pg_sb_->num_dynamic_members = pg_info_.members.size();
+    pg_sb_.write();
+
+    LOGI("Membership sync completed for pg={}, member_count={}", pg_info_.id, pg_info_.members.size());
 }
 
 void HSHomeObject::HS_PG::reconcile_leader() const { repl_dev_->reconcile_leader(); }

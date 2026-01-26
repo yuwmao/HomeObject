@@ -369,6 +369,13 @@ public:
          */
         void get_peer_info(std::vector< peer_info >& members) const;
 
+        /**
+         * Reconcile membership between replication layer and pg_info.
+         * Syncs pg_info_.members with the voting members from repl_dev and updates superblock.
+         * This ensures membership consistency after crashes or failed operations.
+         */
+        void reconcile_membership();
+
         void reconcile_leader() const;
 
         void yield_leadership_to_follower() const;

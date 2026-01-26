@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.13)
 include_directories(BEFORE .)
 
 add_library(homestore_tests_pg OBJECT)
-target_sources(homestore_tests_pg PRIVATE test_homestore_backend.cpp hs_pg_tests.cpp)
+target_sources(homestore_tests_pg PRIVATE test_homestore_backend.cpp hs_pg_tests.cpp test_pg_reconcile_membership.cpp)
 target_link_libraries(homestore_tests_pg homeobject_homestore ${COMMON_TEST_DEPS})
 
 add_library(homestore_tests_shard OBJECT)
