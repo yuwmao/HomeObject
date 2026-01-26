@@ -152,6 +152,15 @@ target_link_libraries(homestore_test_gc PUBLIC homeobject_homestore ${COMMON_TES
 add_test(NAME HomestoreTestGC COMMAND homestore_test_gc -csv error --executor immediate --config_path ./
         --override_config hs_backend_config.enable_gc=true
         --override_config hs_backend_config.gc_enable_read_verify=true
-        --override_config hs_backend_config.gc_garbage_rate_threshold=0 
+        --override_config hs_backend_config.gc_garbage_rate_threshold=0
         --override_config hs_backend_config.gc_scan_interval_sec=5)
+
+add_executable(homestore_test_reconcile_membership)
+target_sources(homestore_test_reconcile_membership PRIVATE $<TARGET_OBJECTS:homestore_tests_reconcile_membership>)
+target_link_libraries(homestore_test_reconcile_membership PUBLIC homeobject_homestore ${COMMON_TEST_DEPS})
+add_test(NAME HomestoreTestReconcileMembership
+        COMMAND homestore_test_reconcile_membership -csv error --executor immediate --config_path ./
+        --override_config homestore_config.consensus.snapshot_freq_distance=0
+        --override_config homestore_config.consensus.max_grpc_message_size=138412032
+        --gtest_filter=HomeObjectFixture.ReconcileMembership)
 

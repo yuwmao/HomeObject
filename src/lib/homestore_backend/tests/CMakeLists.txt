@@ -30,3 +30,7 @@ add_test(NAME HeapChunkSelectorTest COMMAND test_heap_chunk_selector)
 add_library(homestore_tests_gc OBJECT)
 target_sources(homestore_tests_gc PRIVATE test_homestore_backend.cpp hs_gc_tests.cpp)
 target_link_libraries(homestore_tests_gc homeobject_homestore ${COMMON_TEST_DEPS})
+
+add_library(homestore_tests_reconcile_membership OBJECT)
+target_sources(homestore_tests_reconcile_membership PRIVATE test_homestore_backend.cpp test_pg_reconcile_membership.cpp homeobj_fixture_http.hpp)
+target_link_libraries(homestore_tests_reconcile_membership homeobject_homestore ${COMMON_TEST_DEPS})
