@@ -339,6 +339,22 @@ replica_member_info HSHomeObject::to_replica_member_info(const PGMember& pg_memb
     return replica_info;
 }
 
+std::set< PGMember > HSHomeObject::build_membership_from_raft(const std::set< PGMember >& existing_members,
+                                                              const std::vector< replica_id_t >& member_ids) {
+    std::set< PGMember > new_members;
+    for (auto const& id : member_ids) {
+        // Try to preserve existing member metadata (name, priority)
+        auto existing = existing_members.find(PGMember(id));
+        if (existing != existing_members.end()) {
+            new_members.insert(*existing);  // Keep name and priority
+        } else {
+            // New member not in current membership, add with just ID
+            new_members.emplace(id);
+        }
+    }
+    return new_members;
+}
+
 void HSHomeObject::on_pg_start_replace_member(group_id_t group_id, const homestore::replace_member_ctx& ctx,
                                               const std::vector< homestore::replica_id_t >& member_ids,
                                               homestore::trace_id_t tid) {
@@ -348,27 +364,19 @@ void HSHomeObject::on_pg_start_replace_member(group_id_t group_id, const homesto
         if (pg_repl_dev(*pg).group_id() == group_id) {
             auto hs_pg = static_cast< HSHomeObject::HS_PG* >(pg.get());
 
-            // Update membership using the complete member ID list from raft (single source of truth)
-            std::set< PGMember > new_members;
-            for (auto const& id : member_ids) {
-                // Try to preserve existing member info (name, priority)
-                auto existing = pg->pg_info_.members.find(PGMember(id));
-                if (existing != pg->pg_info_.members.end()) {
-                    new_members.insert(*existing);  // Keep name and priority
-                }
-            }
+            // Build membership from raft config
+            auto new_members = build_membership_from_raft(hs_pg->pg_info_.members, member_ids);
 
-            // Ensure replica_in is added with full member info from ctx
+            // Start phase: add replica_in with full metadata from ctx
             new_members.emplace(to_pg_member(ctx.replica_in));
-            // Ensure replica_out will be removed in on_complete_replace_member.
 
-            pg->pg_info_.members = std::move(new_members);
-            hs_pg->update_membership(pg->pg_info_.members);
+            // Apply to PG
+            hs_pg->pg_info_.members = std::move(new_members);
+            hs_pg->update_membership(hs_pg->pg_info_.members);
 
-            LOGI("PG start replace member done, updated membership from raft: task_id={} member_out={} member_in={}, "
-                 "member_nums={}, trace_id={}",
+            LOGI("PG start replace member done: task_id={} member_out={} member_in={}, member_nums={}, trace_id={}",
                  ctx.task_id, boost::uuids::to_string(ctx.replica_out.id), boost::uuids::to_string(ctx.replica_in.id),
-                 pg->pg_info_.members.size(), tid);
+                 hs_pg->pg_info_.members.size(), tid);
             return;
         }
     }
@@ -386,31 +394,19 @@ void HSHomeObject::on_pg_complete_replace_member(group_id_t group_id, const home
         if (pg_repl_dev(*pg).group_id() == group_id) {
             auto hs_pg = static_cast< HSHomeObject::HS_PG* >(pg.get());
 
-            // Update membership using the complete member ID list from raft (single source of truth)
-            std::set< PGMember > new_members;
-            for (auto const& id : member_ids) {
-                // Try to preserve existing member info (name, priority)
-                auto existing = pg->pg_info_.members.find(PGMember(id));
-                if (existing != pg->pg_info_.members.end()) {
-                    new_members.insert(*existing);  // Keep name and priority
-                }
-            }
+            // Build membership from raft config
+            auto new_members = build_membership_from_raft(hs_pg->pg_info_.members, member_ids);
 
-            // Assert replica_in is in the new_members (from raft config)
-            RELEASE_ASSERT(new_members.find(PGMember(ctx.replica_in.id)) != new_members.end(),
-                           "replica_in {} should be in raft config membership in complete phase",
-                           boost::uuids::to_string(ctx.replica_in.id));
-
-            // Explicitly remove replica_out (should already be removed by raft, but ensure consistency)
+            // Complete phase: ensure replica_out is removed (defense in depth)
             new_members.erase(PGMember(ctx.replica_out.id));
 
-            pg->pg_info_.members = std::move(new_members);
-            hs_pg->update_membership(pg->pg_info_.members);
+            // Apply to PG
+            hs_pg->pg_info_.members = std::move(new_members);
+            hs_pg->update_membership(hs_pg->pg_info_.members);
 
-            LOGI("PG complete replace member done, updated membership from raft: member_out={} member_in={}, "
-                 "member_nums={}, trace_id={}",
+            LOGI("PG complete replace member done: member_out={} member_in={}, member_nums={}, trace_id={}",
                  boost::uuids::to_string(ctx.replica_out.id), boost::uuids::to_string(ctx.replica_in.id),
-                 pg->pg_info_.members.size(), tid);
+                 hs_pg->pg_info_.members.size(), tid);
             return;
         }
     }
@@ -428,22 +424,15 @@ void HSHomeObject::on_pg_clean_replace_member_task(group_id_t group_id, const ho
         if (pg_repl_dev(*pg).group_id() == group_id) {
             auto hs_pg = static_cast< HSHomeObject::HS_PG* >(pg.get());
 
-            // Update membership using the complete member ID list from raft (rollback scenario)
-            std::set< PGMember > new_members;
-            for (auto const& id : member_ids) {
-                // Try to preserve existing member info (name, priority)
-                auto existing = pg->pg_info_.members.find(PGMember(id));
-                if (existing != pg->pg_info_.members.end()) {
-                    new_members.insert(*existing);  // Keep name and priority
-                }
-            }
+            // Clean phase: sync membership to raft config (rollback scenario)
+            auto new_members = build_membership_from_raft(hs_pg->pg_info_.members, member_ids);
 
-            pg->pg_info_.members = std::move(new_members);
-            hs_pg->update_membership(pg->pg_info_.members);
+            // Apply to PG
+            hs_pg->pg_info_.members = std::move(new_members);
+            hs_pg->update_membership(hs_pg->pg_info_.members);
 
-            LOGI("PG clean replace member task done, updated membership from raft: task_id={}, member_nums={}, "
-                 "trace_id={}",
-                 ctx.task_id, pg->pg_info_.members.size(), tid);
+            LOGI("PG clean replace member task done: task_id={}, member_nums={}, trace_id={}",
+                 ctx.task_id, hs_pg->pg_info_.members.size(), tid);
             return;
         }
     }

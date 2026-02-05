@@ -782,9 +782,11 @@ public:
     /**
      * @brief Function invoked when complete a member replacement
      *
+     * IMPORTANT: This callback must be idempotent as it may be called multiple times during log replay.
+     *
      * @param group_id The group id of replication device.
      * @param ctx The replace member context containing task_id, member_out, member_in
-     * @param member_ids Complete list of member IDs from raft config (single source of truth)
+     * @param member_ids Complete list of member IDs from consensus layer (single source of truth)
      * @param tid Trace ID
      * */
     void on_pg_complete_replace_member(homestore::group_id_t group_id, const homestore::replace_member_ctx& ctx,
@@ -793,9 +795,12 @@ public:
 
     /**
      * @brief Called when clean replace member task (rollback)
+     *
+     * IMPORTANT: This callback must be idempotent as it may be called multiple times during log replay.
+     *
      * @param group_id The group id of replication device.
      * @param ctx The replace member context containing task_id, member_out, member_in
-     * @param member_ids Complete list of member IDs from raft config (single source of truth)
+     * @param member_ids Complete list of member IDs from consensus layer (single source of truth)
      * @param tid Trace ID
      */
     void on_pg_clean_replace_member_task(homestore::group_id_t group_id, const homestore::replace_member_ctx& ctx,
@@ -1081,6 +1086,18 @@ private:
     }
     homestore::replica_member_info to_replica_member_info(const PGMember& pg_member) const;
     PGMember to_pg_member(const homestore::replica_member_info& replica_info) const;
+
+    /**
+     * @brief Build PG membership from raft config member IDs
+     * Preserves existing member metadata (name, priority) where possible
+     *
+     * @param existing_members Current PG members (for metadata preservation)
+     * @param member_ids Member IDs from raft config
+     * @return New membership set to be applied to PG
+     */
+    std::set<PGMember> build_membership_from_raft(
+        const std::set<PGMember>& existing_members,
+        const std::vector<homestore::replica_id_t>& member_ids);
 };
 
 class BlobIndexServiceCallbacks : public homestore::IndexServiceCallbacks {
