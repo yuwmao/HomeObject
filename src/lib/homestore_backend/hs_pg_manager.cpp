@@ -339,7 +339,7 @@ replica_member_info HSHomeObject::to_replica_member_info(const PGMember& pg_memb
     return replica_info;
 }
 
-std::set< PGMember > HSHomeObject::build_membership_from_raft(const std::set< PGMember >& existing_members,
+std::set< PGMember > HSHomeObject::reconcile_membership_with_config(const std::set< PGMember >& existing_members,
                                                               const std::vector< replica_id_t >& member_ids) {
     std::set< PGMember > new_members;
     for (auto const& id : member_ids) {
@@ -365,9 +365,9 @@ void HSHomeObject::on_pg_start_replace_member(group_id_t group_id, const homesto
             auto hs_pg = static_cast< HSHomeObject::HS_PG* >(pg.get());
 
             // Build membership from raft config
-            auto new_members = build_membership_from_raft(hs_pg->pg_info_.members, member_ids);
+            auto new_members = reconcile_membership_with_config(hs_pg->pg_info_.members, member_ids);
 
-            // Start phase: add replica_in with full metadata from ctx
+            // Start phase: add replica_in with full metadata from ctx, on_pg_start_replace_member is called before the new member is added to the group.
             new_members.emplace(to_pg_member(ctx.replica_in));
 
             // Apply to PG
@@ -395,9 +395,9 @@ void HSHomeObject::on_pg_complete_replace_member(group_id_t group_id, const home
             auto hs_pg = static_cast< HSHomeObject::HS_PG* >(pg.get());
 
             // Build membership from raft config
-            auto new_members = build_membership_from_raft(hs_pg->pg_info_.members, member_ids);
+            auto new_members = reconcile_membership_with_config(hs_pg->pg_info_.members, member_ids);
 
-            // Complete phase: ensure replica_out is removed (defense in depth)
+            // Complete phase: ensure replica_out is removed (defense in depth), on_pg_complete_replace_member should be called after the replica_out is verified to be removed.
             new_members.erase(PGMember(ctx.replica_out.id));
 
             // Apply to PG
@@ -425,7 +425,7 @@ void HSHomeObject::on_pg_clean_replace_member_task(group_id_t group_id, const ho
             auto hs_pg = static_cast< HSHomeObject::HS_PG* >(pg.get());
 
             // Clean phase: sync membership to raft config (rollback scenario)
-            auto new_members = build_membership_from_raft(hs_pg->pg_info_.members, member_ids);
+            auto new_members = reconcile_membership_with_config(hs_pg->pg_info_.members, member_ids);
 
             // Apply to PG
             hs_pg->pg_info_.members = std::move(new_members);
@@ -439,37 +439,6 @@ void HSHomeObject::on_pg_clean_replace_member_task(group_id_t group_id, const ho
     LOGE("PG clean replace member task failed, group_id not found, task_id={}, trace_id={}", ctx.task_id, tid);
 }
 
-//This function actually perform rollback for replace member task:  Remove in_member, and ensure out_member exists
-void HSHomeObject::on_pg_clean_replace_member_task(group_id_t group_id, const std::string& task_id,
-                                                    const replica_member_info& member_out,
-                                                    const replica_member_info& member_in, trace_id_t tid) {
-    std::unique_lock lck(_pg_lock);
-    for (const auto& iter : _pg_map) {
-        auto& pg = iter.second;
-        if (pg_repl_dev(*pg).group_id() == group_id) {
-            auto hs_pg = static_cast< HSHomeObject::HS_PG* >(pg.get());
-
-            // Remove the in_member (the one that was added but now needs to be removed)
-            auto removed_count = pg->pg_info_.members.erase(PGMember(member_in.id));
-
-            // Ensure out_member exists
-            // Using emplace is safe - it won't overwrite if already exists
-            auto out_pg_member = to_pg_member(member_out);
-            auto [it, inserted] = pg->pg_info_.members.emplace(std::move(out_pg_member));
-
-            // Update superblock
-            hs_pg->update_membership(pg->pg_info_.members);
-
-            LOGI("PG clean replace member task done (rollback), task_id={}, removed in_member={} (removed={}), "
-                 "ensured out_member={} (inserted={}), member_nums={}, trace_id={}",
-                 task_id, boost::uuids::to_string(member_in.id), removed_count,
-                 boost::uuids::to_string(member_out.id), inserted, pg->pg_info_.members.size(), tid);
-            return;
-        }
-    }
-    LOGE("PG clean replace member task failed, pg not found, task_id={}, member_out={}, member_in={}, trace_id={}", task_id,
-         boost::uuids::to_string(member_out.id), boost::uuids::to_string(member_in.id), tid);
-}
 
 bool HSHomeObject::reconcile_membership(pg_id_t pg_id) {
     std::unique_lock lck(_pg_lock);
@@ -487,20 +456,9 @@ bool HSHomeObject::reconcile_membership(pg_id_t pg_id) {
         return false;
     }
 
-    // Build new member set from actual members
-    std::set< PGMember > new_members;
-    for (auto& member_id : actual_members) {
-        auto existing = hs_pg->pg_info_.members.find(PGMember(member_id));
-        if (existing != hs_pg->pg_info_.members.end()) {
-            // Keep the existing member with its name and priority
-            new_members.insert(*existing);
-        } else {
-            // New member not in our records, add with default name
-            PGMember new_member(member_id);
-            new_members.insert(std::move(new_member));
-            LOGE("Adding new member {} to pg={} membership, should not happen!", boost::uuids::to_string(member_id), hs_pg->pg_info_.id);
-        }
-    }
+    // Build new member set by reconciling with actual members from replication layer
+    auto new_members = reconcile_membership_with_config(hs_pg->pg_info_.members, actual_members);
+
     // Check if membership changed
     if (new_members == hs_pg->pg_info_.members) {
         LOGD("Membership already in sync for pg={}, no update needed", hs_pg->pg_info_.id);

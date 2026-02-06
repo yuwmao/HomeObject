@@ -807,17 +807,6 @@ public:
                                           const std::vector< homestore::replica_id_t >& member_ids,
                                           homestore::trace_id_t tid);
 
-    /**
-     * @brief Called when clean replace member task (rollback)
-     * @param group_id Group ID
-     * @param task_id Task ID
-     * @param member_out Member which should be restored to group
-     * @param member_in Member which should be removed from group
-     * */
-    void on_pg_clean_replace_member_task(homestore::group_id_t group_id, const std::string& task_id,
-                                         const homestore::replica_member_info& member_out,
-                                         const homestore::replica_member_info& member_in, trace_id_t tid);
-
     void on_remove_member(homestore::group_id_t group_id, const peer_id_t& member, trace_id_t tid = 0);
 
     /**
@@ -1088,14 +1077,14 @@ private:
     PGMember to_pg_member(const homestore::replica_member_info& replica_info) const;
 
     /**
-     * @brief Build PG membership from raft config member IDs
+     * @brief Reconcile PG membership with authoritative member ID list from replication layer
      * Preserves existing member metadata (name, priority) where possible
      *
      * @param existing_members Current PG members (for metadata preservation)
-     * @param member_ids Member IDs from raft config
-     * @return New membership set to be applied to PG
+     * @param member_ids Authoritative member IDs from replication consensus
+     * @return New membership set reconciled with the authoritative list
      */
-    std::set<PGMember> build_membership_from_raft(
+    std::set<PGMember> reconcile_membership_with_config(
         const std::set<PGMember>& existing_members,
         const std::vector<homestore::replica_id_t>& member_ids);
 };
