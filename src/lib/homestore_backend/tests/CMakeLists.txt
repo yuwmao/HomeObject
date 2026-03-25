@@ -15,7 +15,7 @@ target_sources(homestore_tests_blob PRIVATE test_homestore_backend.cpp hs_blob_t
 target_link_libraries(homestore_tests_blob homeobject_homestore ${COMMON_TEST_DEPS})
 
 add_library(homestore_tests_misc OBJECT)
-target_sources(homestore_tests_misc PRIVATE test_homestore_backend.cpp homeobj_misc_tests.cpp)
+target_sources(homestore_tests_misc PRIVATE test_homestore_backend.cpp homeobj_misc_tests.cpp homeobj_misc_tests_restart.cpp)
 target_link_libraries(homestore_tests_misc homeobject_homestore ${COMMON_TEST_DEPS})
 
 add_library(homestore_tests_dynamic OBJECT)

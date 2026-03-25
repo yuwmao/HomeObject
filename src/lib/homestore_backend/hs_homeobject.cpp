@@ -81,6 +81,13 @@ public:
     void on_repl_devs_init_completed() override { _home_object->on_replica_restart(); }
 
     std::pair< std::string, uint16_t > lookup_peer(homestore::replica_id_t uuid) const override {
+#ifdef _PRERELEASE
+        // Inject flip to simulate lookup_peer failure during join_group
+        if (iomgr_flip::instance()->test_flip("fake_lookup_peer_failure")) {
+            LOGWARN("Flip triggered: returning invalid address for replica_id={}", to_string(uuid));
+            return std::make_pair(std::string(""), 0);
+        }
+#endif
         std::string endpoint;
         // for folly::uri to parse correctly, we need to add "http://" prefix
         static std::string const uri_prefix{"http://"};
@@ -195,6 +202,7 @@ void HSHomeObject::init_homestore() {
 
     // We either recoverd a UUID and no FORMAT is needed, or we need one for a later superblock
     if (need_format) {
+        LOGI("discover_svcid: calling with std::nullopt during FORMAT");
         _our_id = app->discover_svcid(std::nullopt);
         RELEASE_ASSERT(!_our_id.is_nil(), "Received no SvcId and need FORMAT!");
         LOGW("We are starting for the first time on [{}], Formatting!!", to_string(_our_id));
@@ -238,6 +246,7 @@ void HSHomeObject::init_homestore() {
         }
     } else {
         RELEASE_ASSERT(!_our_id.is_nil(), "No SvcId read after HomeStore recovery!");
+        LOGI("discover_svcid: calling with existing id {} during restart", to_string(_our_id));
         auto const new_id = app->discover_svcid(_our_id);
         RELEASE_ASSERT(new_id == _our_id, "Received new SvcId [{}] AFTER recovery of [{}]?!", to_string(new_id),
                        to_string(_our_id));

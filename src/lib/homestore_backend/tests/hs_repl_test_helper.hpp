@@ -140,10 +140,19 @@ public:
         int max_data_size() const override { return 4 * Mi; }
         peer_id_t discover_svcid(std::optional< peer_id_t > const& p) const override {
             if (p.has_value()) RELEASE_ASSERT_EQ(p.value(), helper_.my_replica_id_, "input svcid not matching");
+            LOGINFO("discover svc, return replica id {}", boost::uuids::to_string(helper_.my_replica_id_));
             return helper_.my_replica_id_;
         }
 
         std::string lookup_peer(peer_id_t const& pid) const override {
+#ifdef _PRERELEASE
+            // Inject flip to simulate lookup_peer failure during join_group
+            if (iomgr_flip::instance()->test_flip("fake_lookup_peer_failure")) {
+                LOGWARN("Flip triggered: returning invalid address for replica_id={}",
+                        boost::uuids::to_string(pid));
+                return std::string("");
+            }
+#endif
             uint16_t port;
             if (auto it = helper_.members_.find(pid); it != helper_.members_.end()) {
                 port = SISL_OPTIONS["base_port"].as< uint16_t >() + it->second;
